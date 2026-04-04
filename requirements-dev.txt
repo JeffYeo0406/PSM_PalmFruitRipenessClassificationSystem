@@ -1,0 +1,11 @@
+tensorflow
+keras
+pillow
+numpy
+scikit-learn
+flask
+flask-cors
+pandas
+seaborn
+matplotlib
+openpyxl

@@ -1,0 +1,7 @@
+flask
+flask-cors
+pillow
+numpy
+# Choose one runtime depending on availability on your Pi:
+# ai-edge-litert
+# tflite-runtime
