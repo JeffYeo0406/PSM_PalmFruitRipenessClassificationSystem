@@ -83,12 +83,34 @@ Use the lightweight Flask service to accept multipart image uploads from a phone
 5) CLI inference (no Flask)
 	- `python pi_inference.py --model models/palm_ripeness_best_<ts>_int8.tflite --labels models/labels_<ts>.json --image sample.jpg --runs 5 --warmup 1`
 
+### Pre-Inference Input Gate
+Before ripeness classification, the runtime performs a quick hard-reject gate to avoid invalid predictions:
+
+- Rejects low-quality captures (too small, blurry, low-contrast, over/under-exposed).
+- Optionally rejects likely non-palm images using a lightweight binary TFLite model.
+- Applies consistently to both API (`/classify`) and CLI (`pi_inference.py`).
+
+API behavior:
+- Rejected inputs return HTTP 422 with a structured reason (`error_code`, `error`, `hint`, and `details`).
+
+CLI behavior:
+- Rejected inputs print a structured JSON error and exit with non-zero status.
+
 Environment variables
 - `MODEL_PATH` and `LABELS_PATH`: override model/labels used by the API and CLI defaults.
 - `WARMUP_RUNS`, `RUNS`: control warmup and timing iterations.
 - `MAX_UPLOAD_MB`: upload size guardrail for the API (default 5 MB).
 - `RESULT_TTL_SECONDS`: in-memory retention duration for `/result/<request_id>` entries (default 1800).
 - `PORT`: HTTP port (default 5000).
+- `MIN_IMAGE_WIDTH`, `MIN_IMAGE_HEIGHT`: minimum accepted image dimensions for quality gate.
+- `MIN_ASPECT_RATIO`, `MAX_ASPECT_RATIO`: accepted aspect-ratio window.
+- `MIN_BRIGHTNESS`, `MAX_BRIGHTNESS`: brightness range used to reject over/under-exposed captures.
+- `MIN_CONTRAST_STD`: minimum grayscale standard deviation (low values are rejected as low contrast).
+- `MIN_SHARPNESS`: minimum edge-strength score used to reject blurry images.
+- `ENABLE_PALM_BINARY_GATE`: enable optional palm-vs-nonpalm gate (`true/false`).
+- `PALM_BINARY_MODEL_PATH`: path to optional palm-presence binary TFLite model.
+- `PALM_BINARY_THRESHOLD`: minimum palm probability required to continue to ripeness classification.
+- `PALM_BINARY_PALM_INDEX`: palm class index for multi-logit binary outputs (default 1).
  
 Security note: API is intended for LAN use; do not expose publicly without HTTPS and authentication.
 

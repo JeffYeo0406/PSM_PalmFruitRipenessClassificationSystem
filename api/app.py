@@ -23,6 +23,8 @@ from pi_inference import (  # noqa: E402
     DEFAULT_MODEL,
     DEFAULT_RUNS,
     DEFAULT_WARMUP,
+    InputValidationError,
+    get_input_gate_config,
     load_interpreter,
     load_labels,
     predict_bytes,
@@ -170,6 +172,7 @@ def health():
             "labels": LABELS_PATH,
             "classes": labels,
             "runtime_error": model_load_error,
+            "input_gate": get_input_gate_config(),
             "stored_results": stored_count,
             "result_ttl_seconds": RESULT_TTL_SECONDS,
         }
@@ -203,9 +206,19 @@ def classify():
                 warmup=WARMUP_RUNS,
                 runs=RUNS,
             )
+    except InputValidationError as exc:
+        logging.info("req=%s rejected by input gate: %s", req_id, exc.message)
+        payload = {
+            "request_id": req_id,
+            **exc.to_dict(),
+        }
+        return jsonify(payload), 422
+    except RuntimeError as exc:
+        logging.warning("req=%s runtime unavailable: %s", req_id, exc)
+        return jsonify({"request_id": req_id, "error": str(exc)}), 503
     except Exception as exc:  # noqa: BLE001
         logging.warning("req=%s classify failed: %s", req_id, exc)
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"request_id": req_id, "error": str(exc)}), 400
 
     api_latency = (time.perf_counter() - api_start) * 1000
     logging.info(

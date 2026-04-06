@@ -3,9 +3,10 @@ import argparse
 import io
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
-from typing import List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
@@ -37,6 +38,15 @@ def _resolve_path(p: str) -> str:
 
 
 IMG_SIZE = (224, 224)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_MODEL = resolve_artifact(
     env_value=os.getenv("MODEL_PATH"),
     default_candidates=[
@@ -75,12 +85,65 @@ DEFAULT_WARMUP = int(os.getenv("WARMUP_RUNS", "1"))
 DEFAULT_RUNS = int(os.getenv("RUNS", "3"))
 MAX_FILE_BYTES = 10 * 1024 * 1024  # guardrail for API uploads
 
+# Quick image gate (hard reject) before ripeness inference
+MIN_IMAGE_WIDTH = int(os.getenv("MIN_IMAGE_WIDTH", "96"))
+MIN_IMAGE_HEIGHT = int(os.getenv("MIN_IMAGE_HEIGHT", "96"))
+MIN_ASPECT_RATIO = float(os.getenv("MIN_ASPECT_RATIO", "0.4"))
+MAX_ASPECT_RATIO = float(os.getenv("MAX_ASPECT_RATIO", "2.5"))
+MIN_BRIGHTNESS = float(os.getenv("MIN_BRIGHTNESS", "20"))
+MAX_BRIGHTNESS = float(os.getenv("MAX_BRIGHTNESS", "235"))
+MIN_CONTRAST_STD = float(os.getenv("MIN_CONTRAST_STD", "12"))
+MIN_SHARPNESS = float(os.getenv("MIN_SHARPNESS", "6"))
+
+# Optional stronger palm-presence gate
+ENABLE_PALM_BINARY_GATE = _env_bool("ENABLE_PALM_BINARY_GATE", default=False)
+PALM_BINARY_THRESHOLD = float(os.getenv("PALM_BINARY_THRESHOLD", "0.60"))
+PALM_BINARY_PALM_INDEX = int(os.getenv("PALM_BINARY_PALM_INDEX", "1"))
+PALM_BINARY_MODEL_PATH = resolve_artifact(
+    env_value=os.getenv("PALM_BINARY_MODEL_PATH"),
+    default_candidates=[
+        "models/palm_presence_binary.tflite",
+        "models/palm_detector_binary.tflite",
+        "saved_models/palm_presence_binary.tflite",
+    ],
+    glob_patterns=[
+        "models/*palm*binary*.tflite",
+        "models/*palm*detector*.tflite",
+        "saved_models/*palm*binary*.tflite",
+    ],
+    allow_missing_default=False,
+)
+
 
 @dataclass
 class InterpreterBundle:
     interpreter: Interpreter
     input_details: dict
     output_details: dict
+
+
+class InputValidationError(ValueError):
+    def __init__(self, code: str, message: str, hint: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.hint = hint
+        self.details = details or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "error": self.message,
+            "error_code": self.code,
+        }
+        if self.hint:
+            payload["hint"] = self.hint
+        if self.details:
+            payload["details"] = self.details
+        return payload
+
+
+_palm_binary_bundle: Optional[InterpreterBundle] = None
+_palm_binary_bundle_path: Optional[str] = None
 
 
 def load_labels(path: str) -> List[str]:
@@ -99,10 +162,170 @@ def load_interpreter(model_path: str) -> InterpreterBundle:
     return InterpreterBundle(interpreter, input_details, output_details)
 
 
+def _get_model_input_hw(input_details: dict) -> tuple[int, int]:
+    shape = input_details.get("shape", [1, IMG_SIZE[0], IMG_SIZE[1], 3])
+    if len(shape) >= 4 and int(shape[1]) > 0 and int(shape[2]) > 0:
+        return int(shape[1]), int(shape[2])
+    return IMG_SIZE
+
+
+def _load_palm_binary_bundle() -> Optional[InterpreterBundle]:
+    global _palm_binary_bundle, _palm_binary_bundle_path
+
+    if not ENABLE_PALM_BINARY_GATE:
+        return None
+
+    if not PALM_BINARY_MODEL_PATH:
+        raise RuntimeError(
+            "Palm binary gate is enabled but no binary model was found. Set PALM_BINARY_MODEL_PATH or add a matching model in models/."
+        )
+    if not os.path.exists(PALM_BINARY_MODEL_PATH):
+        raise RuntimeError(
+            f"Palm binary gate is enabled but model was not found at {PALM_BINARY_MODEL_PATH}."
+        )
+
+    if _palm_binary_bundle is not None and _palm_binary_bundle_path == PALM_BINARY_MODEL_PATH:
+        return _palm_binary_bundle
+
+    _palm_binary_bundle = load_interpreter(PALM_BINARY_MODEL_PATH)
+    _palm_binary_bundle_path = PALM_BINARY_MODEL_PATH
+    return _palm_binary_bundle
+
+
+def _sigmoid(x: float) -> float:
+    if x >= 0:
+        z = np.exp(-x)
+        return float(1 / (1 + z))
+    z = np.exp(x)
+    return float(z / (1 + z))
+
+
+def _run_palm_binary_gate(arr_rgb: np.ndarray) -> Optional[float]:
+    bundle = _load_palm_binary_bundle()
+    if bundle is None:
+        return None
+
+    target_h, target_w = _get_model_input_hw(bundle.input_details)
+    img = Image.fromarray(arr_rgb.astype(np.uint8)).resize((target_w, target_h))
+    arr = np.array(img, dtype=np.float32)
+    arr = preprocess_input(arr)
+    batch = np.expand_dims(arr, axis=0)
+    batch = _quantize_input(batch, bundle.input_details)
+
+    bundle.interpreter.set_tensor(bundle.input_details["index"], batch)
+    bundle.interpreter.invoke()
+    raw = bundle.interpreter.get_tensor(bundle.output_details["index"])
+    logits = _dequantize_output(raw, bundle.output_details).reshape(-1)
+
+    if logits.size == 1:
+        value = float(logits[0])
+        if 0.0 <= value <= 1.0:
+            return value
+        return _sigmoid(value)
+
+    probs = _normalize_probs(logits)
+    palm_index = min(max(PALM_BINARY_PALM_INDEX, 0), probs.size - 1)
+    return float(probs[palm_index])
+
+
+def _validate_image_gate(arr_rgb: np.ndarray) -> Dict[str, float]:
+    height, width = arr_rgb.shape[:2]
+    aspect = width / max(height, 1)
+    gray = arr_rgb.mean(axis=2)
+    brightness = float(np.mean(gray))
+    contrast_std = float(np.std(gray))
+    dx = np.diff(gray, axis=1)
+    dy = np.diff(gray, axis=0)
+    sharpness = float(np.mean(np.abs(dx)) + np.mean(np.abs(dy)))
+
+    metrics = {
+        "width": float(width),
+        "height": float(height),
+        "aspect_ratio": float(aspect),
+        "brightness": brightness,
+        "contrast_std": contrast_std,
+        "sharpness": sharpness,
+    }
+
+    if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
+        raise InputValidationError(
+            code="low_resolution",
+            message="Image is too small for reliable ripeness prediction.",
+            hint=f"Use a clearer image at least {MIN_IMAGE_WIDTH}x{MIN_IMAGE_HEIGHT} pixels.",
+            details=metrics,
+        )
+
+    if aspect < MIN_ASPECT_RATIO or aspect > MAX_ASPECT_RATIO:
+        raise InputValidationError(
+            code="bad_aspect_ratio",
+            message="Image aspect ratio is outside supported range.",
+            hint="Center one fruit bunch and avoid extreme panoramic crops.",
+            details=metrics,
+        )
+
+    if brightness < MIN_BRIGHTNESS or brightness > MAX_BRIGHTNESS:
+        raise InputValidationError(
+            code="bad_exposure",
+            message="Image exposure is too dark or too bright.",
+            hint="Capture under balanced lighting and avoid strong glare/shadows.",
+            details=metrics,
+        )
+
+    if contrast_std < MIN_CONTRAST_STD:
+        raise InputValidationError(
+            code="low_contrast",
+            message="Image contrast is too low for reliable prediction.",
+            hint="Increase lighting contrast and avoid foggy or washed-out captures.",
+            details=metrics,
+        )
+
+    if sharpness < MIN_SHARPNESS:
+        raise InputValidationError(
+            code="blurry_image",
+            message="Image appears blurry or out of focus.",
+            hint="Refocus camera and keep the fruit steady before capture.",
+            details=metrics,
+        )
+
+    palm_score = _run_palm_binary_gate(arr_rgb)
+    if palm_score is not None:
+        metrics["palm_score"] = float(palm_score)
+        if palm_score < PALM_BINARY_THRESHOLD:
+            raise InputValidationError(
+                code="not_palm_fruit",
+                message="Image likely does not contain palm fruit.",
+                hint="Capture only palm fruit bunches in frame.",
+                details=metrics,
+            )
+
+    return metrics
+
+
+def get_input_gate_config() -> Dict[str, Any]:
+    return {
+        "enabled": True,
+        "min_image_width": MIN_IMAGE_WIDTH,
+        "min_image_height": MIN_IMAGE_HEIGHT,
+        "min_aspect_ratio": MIN_ASPECT_RATIO,
+        "max_aspect_ratio": MAX_ASPECT_RATIO,
+        "min_brightness": MIN_BRIGHTNESS,
+        "max_brightness": MAX_BRIGHTNESS,
+        "min_contrast_std": MIN_CONTRAST_STD,
+        "min_sharpness": MIN_SHARPNESS,
+        "palm_binary_gate_enabled": ENABLE_PALM_BINARY_GATE,
+        "palm_binary_model": PALM_BINARY_MODEL_PATH,
+        "palm_binary_model_exists": bool(PALM_BINARY_MODEL_PATH and os.path.exists(PALM_BINARY_MODEL_PATH)),
+        "palm_binary_threshold": PALM_BINARY_THRESHOLD,
+        "palm_binary_palm_index": PALM_BINARY_PALM_INDEX,
+    }
+
+
 def preprocess_image_bytes(image_bytes: bytes) -> np.ndarray:
     if len(image_bytes) > MAX_FILE_BYTES:
         raise ValueError("image payload is too large")
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    raw_arr = np.array(img, dtype=np.uint8)
+    _validate_image_gate(raw_arr)
     img = img.resize(IMG_SIZE)
     arr = np.array(img, dtype=np.float32)
     arr = preprocess_input(arr)
@@ -194,10 +417,17 @@ def main():
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="Warmup iterations before timing")
     args = parser.parse_args()
 
-    labels = load_labels(args.labels)
-    bundle = load_interpreter(args.model)
-    result = predict_file(args.image, bundle, labels, warmup=args.warmup, runs=args.runs)
-    print(json.dumps(result, indent=2))
+    try:
+        labels = load_labels(args.labels)
+        bundle = load_interpreter(args.model)
+        result = predict_file(args.image, bundle, labels, warmup=args.warmup, runs=args.runs)
+        print(json.dumps(result, indent=2))
+    except InputValidationError as exc:
+        print(json.dumps(exc.to_dict(), indent=2))
+        sys.exit(2)
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": str(exc)}, indent=2))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
