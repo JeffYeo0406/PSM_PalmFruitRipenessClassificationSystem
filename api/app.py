@@ -18,11 +18,12 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from pi_inference import (  # noqa: E402
+from scripts.pi_inference import (  # noqa: E402
     DEFAULT_LABELS,
     DEFAULT_MODEL,
     DEFAULT_RUNS,
     DEFAULT_WARMUP,
+    ensure_input_gate_ready,
     InputValidationError,
     get_input_gate_config,
     load_interpreter,
@@ -121,6 +122,7 @@ def _load_runtime_artifacts():
 
     labels = load_labels(LABELS_PATH)
     bundle = load_interpreter(MODEL_PATH)
+    ensure_input_gate_ready()
 
 
 def _ensure_runtime_ready():

@@ -1,0 +1,43 @@
+{
+  "timestamp": "20260414_003824",
+  "data_dir": "C:\\Users\\jeffy\\Documents\\PSM\\PalmDetector\\BinaryGateSplit_80_20",
+  "class_names": [
+    "Non-palm",
+    "Palm"
+  ],
+  "palm_class": "Palm",
+  "non_palm_class": "Non-palm",
+  "palm_class_index": 1,
+  "default_threshold": 0.6,
+  "recommended_threshold": 0.31,
+  "validation_metrics": {
+    "default": {
+      "threshold": 0.6,
+      "accuracy": 0.98,
+      "precision": 1.0,
+      "recall": 0.96,
+      "f1": 0.9795918367346939,
+      "tp": 192,
+      "tn": 200,
+      "fp": 0,
+      "fn": 8
+    },
+    "recommended": {
+      "threshold": 0.31,
+      "accuracy": 0.985,
+      "precision": 0.9754901960784313,
+      "recall": 0.995,
+      "f1": 0.9851485148514851,
+      "tp": 199,
+      "tn": 195,
+      "fp": 5,
+      "fn": 1
+    }
+  },
+  "artifacts": {
+    "h5": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\saved_models\\palm_presence_binary_20260414_003824.h5",
+    "fp32": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\saved_models\\palm_presence_binary_20260414_003824_fp32.tflite",
+    "int8": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\saved_models\\palm_presence_binary_20260414_003824_int8.tflite",
+    "canonical_tflite": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\saved_models\\palm_presence_binary.tflite"
+  }
+}

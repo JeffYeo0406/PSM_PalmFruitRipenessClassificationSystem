@@ -2,6 +2,8 @@ flask
 flask-cors
 pillow
 numpy
-# Choose one runtime depending on availability on your Pi:
+# Runtime contract:
+# - Prefer ai-edge-litert when available.
+# - Fall back to tflite-runtime.
+tflite-runtime
 # ai-edge-litert
-# tflite-runtime

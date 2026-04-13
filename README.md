@@ -42,6 +42,8 @@ The model is evaluated using a dedicated test set that was never seen during the
 * `classification_report_*.xlsx`: Tabular classification report and confusion-matrix sheets for formal analysis/export.
 * `Pipeline_Demonstration_Full_Report.docx`: End-to-end pipeline report with embedded figures and summary.
 * `experiment_log.csv`: Comprehensive history of hyperparameter runs, configurations, and outcomes.
+* `palm_presence_binary.tflite` (when binary gate training is run): Canonical stage-1 palm/non-palm gate model for API/CLI runtime.
+* `palm_presence_binary_manifest_*.json` (when binary gate training is run): Stores recommended threshold and exported gate artifact paths.
 
 ---
 
@@ -55,11 +57,34 @@ The pipeline automatically converts the best `.h5` checkpoint into three TensorF
 * **INT8:** Full integer quantization for maximum speed (requires representative dataset).
 
 ### Hardware Setup
-* **Runtime:** LiteRT (formerly `tflite-runtime`).
+* **Runtime:** Prefer LiteRT (`ai-edge-litert`), fall back to `tflite-runtime`.
+* **Interpreter chain source-of-truth:** `scripts/pi_inference.py`.
 * **Performance Target:** 2–4 FPS on Raspberry Pi CPU.
 
 ### Flask API on Raspberry Pi
 Use the lightweight Flask service to accept multipart image uploads from a phone and return the top-1 ripeness label.
+
+0) Build stage-1 binary palm gate model (dev machine)
+	- If your binary dataset is already prepared, use it directly with one of the supported layouts below.
+	- Required class names by default:
+	  - `non_palm` (negative class)
+	  - `palm` (positive class)
+	- If your dataset uses different class folder names, set `--non-palm-class` and `--palm-class` in the training command.
+	- Supported layouts:
+	  - `binary_data/train/non_palm`, `binary_data/train/palm`, `binary_data/val/non_palm`, `binary_data/val/palm`
+	  - or `binary_data/non_palm`, `binary_data/palm` (auto split via `--val-split`)
+	- Dataset guidance (recommended):
+	  - Start with at least 200-500 images per class (1000+ per class preferred).
+	  - Keep class balance reasonably close (target <= 2:1 ratio).
+	  - Ensure `non_palm` is diverse (tools, workers, plantation ground, other fruits, random field scenes) to reduce false accepts.
+	- Train and export gate artifacts:
+	  - Linux/macOS: `python scripts/train_binary_gate.py --data-dir /path/to/binary_data --output-dir models`
+	  - Windows PowerShell: `python scripts/train_binary_gate.py --data-dir "C:\path\to\binary_data" --output-dir models`
+	  - Example with custom class names: `python scripts/train_binary_gate.py --data-dir /path/to/binary_data --non-palm-class not_palm --palm-class oil_palm --output-dir models`
+	- This creates canonical gate model `models/palm_presence_binary.tflite` and a timestamped manifest with recommended threshold.
+	- Optional: print latest recommended threshold from manifest and apply it to runtime
+	  - `python -c "import glob,json; p=max(glob.glob('models/palm_presence_binary_manifest_*.json')); print(json.load(open(p, 'r', encoding='utf-8'))['recommended_threshold'])"`
+	  - Then set `PALM_BINARY_THRESHOLD` to that value when starting API/CLI.
 
 1) Export TFLite models (dev machine)
 	- `python scripts/convert_tflite.py --h5 models/palm_ripeness_best_20260311_190150.h5 --rep-data /path/to/train --output-dir models [--labels labels.json]`
@@ -69,7 +94,7 @@ Use the lightweight Flask service to accept multipart image uploads from a phone
 	- `pip install -r requirements-pi.txt`
 
 3) Start the API
-	- `MODEL_PATH=/home/pi/models/palm_ripeness_best_<ts>_int8.tflite LABELS_PATH=/home/pi/models/labels_<ts>.json python api/app.py`
+	- `MODEL_PATH=/home/pi/models/palm_ripeness_best_<ts>_int8.tflite LABELS_PATH=/home/pi/models/labels_<ts>.json PALM_BINARY_MODEL_PATH=/home/pi/models/palm_presence_binary.tflite python api/app.py`
 	- If `MODEL_PATH`/`LABELS_PATH` are not set, the API auto-discovers the newest matching artifacts in `models/`.
 	- Compatibility fallback is built in: legacy `saved_models/` and root-level paths are also supported automatically.
 	- Endpoints: `/health` (GET), `/classify` (POST multipart form with `file` field), `/result/<request_id>` (GET).
@@ -81,14 +106,15 @@ Use the lightweight Flask service to accept multipart image uploads from a phone
 	- Optional fetch-by-id: `curl http://<pi-ip>:5000/result/ab12cd34`
 
 5) CLI inference (no Flask)
-	- `python pi_inference.py --model models/palm_ripeness_best_<ts>_int8.tflite --labels models/labels_<ts>.json --image sample.jpg --runs 5 --warmup 1`
+	- `python scripts/pi_inference.py --model models/palm_ripeness_best_<ts>_int8.tflite --labels models/labels_<ts>.json --image sample.jpg --runs 5 --warmup 1`
 
 ### Pre-Inference Input Gate
 Before ripeness classification, the runtime performs a quick hard-reject gate to avoid invalid predictions:
 
-- Rejects low-quality captures (too small, blurry, low-contrast, over/under-exposed).
-- Optionally rejects likely non-palm images using a lightweight binary TFLite model.
-- Applies consistently to both API (`/classify`) and CLI (`pi_inference.py`).
+- Stage 1: Rejects non-palm images using a binary palm/non-palm TFLite model.
+- Stage 2: Rejects low-quality captures (too small, blurry, low-contrast, over/under-exposed).
+- Stage 3: Only then runs ripeness classification.
+- Applies consistently to both API (`/classify`) and CLI (`scripts/pi_inference.py`).
 
 API behavior:
 - Rejected inputs return HTTP 422 with a structured reason (`error_code`, `error`, `hint`, and `details`).
@@ -107,10 +133,13 @@ Environment variables
 - `MIN_BRIGHTNESS`, `MAX_BRIGHTNESS`: brightness range used to reject over/under-exposed captures.
 - `MIN_CONTRAST_STD`: minimum grayscale standard deviation (low values are rejected as low contrast).
 - `MIN_SHARPNESS`: minimum edge-strength score used to reject blurry images.
-- `ENABLE_PALM_BINARY_GATE`: enable optional palm-vs-nonpalm gate (`true/false`).
-- `PALM_BINARY_MODEL_PATH`: path to optional palm-presence binary TFLite model.
+- `ENABLE_PALM_BINARY_GATE`: enable/disable palm-vs-nonpalm gate (`true/false`, default: `true`).
+- `PALM_BINARY_MODEL_PATH`: path to palm-presence binary TFLite model (required when gate is enabled).
 - `PALM_BINARY_THRESHOLD`: minimum palm probability required to continue to ripeness classification.
 - `PALM_BINARY_PALM_INDEX`: palm class index for multi-logit binary outputs (default 1).
+
+Binary gate recommendation:
+- Use the recommended threshold from `palm_presence_binary_manifest_*.json` generated by `scripts/train_binary_gate.py`.
  
 Security note: API is intended for LAN use; do not expose publicly without HTTPS and authentication.
 
@@ -145,7 +174,8 @@ PSM_PalmFruitRipenessClassificationSystem/
 ├── examples/
 │   └── test_api.py
 ├── scripts/
-│   └── convert_tflite.py
+│   ├── convert_tflite.py
+│   └── train_binary_gate.py
 ├── notebooks/
 │   ├── Test1.ipynb
 │   ├── Deployment.ipynb
@@ -184,7 +214,8 @@ PSM_PalmFruitRipenessClassificationSystem/
 ├── api/
 │   └── app.py
 ├── scripts/
-│   └── convert_tflite.py
+│   ├── convert_tflite.py
+│   └── train_binary_gate.py
 ├── notebooks/
 │   ├── Test1.ipynb
 │   ├── Deployment.ipynb

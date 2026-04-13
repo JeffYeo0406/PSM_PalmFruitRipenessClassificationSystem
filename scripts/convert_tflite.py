@@ -17,8 +17,8 @@ import tensorflow as tf
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 
-def representative_dataset(data_dir: str, img_size: Tuple[int, int], take: int = 200) -> Iterable:
-    files = tf.data.Dataset.list_files(str(Path(data_dir) / "*" / "*"), shuffle=True)
+def representative_dataset(data_dir: str, img_size: Tuple[int, int], take: int = 500) -> Iterable:
+    files = tf.data.Dataset.list_files(str(Path(data_dir) / "*" / "*.*"), shuffle=False)
 
     def _load(path):
         img = tf.io.read_file(path)
@@ -71,8 +71,11 @@ def convert_model(h5_path: str, labels_path: Optional[str], output_dir: str, rep
         if rep_fn:
             converter.representative_dataset = rep_fn
             converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-            converter.inference_input_type = tf.int8
-            converter.inference_output_type = tf.int8
+            # Allow float fallback for better compatibility
+            converter.inference_input_type = tf.float32
+            converter.inference_output_type = tf.float32
+            # Enable new quantizer for more accurate INT8 weights
+            converter.experimental_new_quantizer = True
         tflite_model = converter.convert()
         out_path = f"{base}_{target}.tflite"
         with open(out_path, "wb") as f:
@@ -85,6 +88,7 @@ def convert_model(h5_path: str, labels_path: Optional[str], output_dir: str, rep
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.target_spec.supported_types = [tf.float16]
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
     fp16_path = _convert(converter, "float16", optimizations=[tf.lite.Optimize.DEFAULT])
 
     int8_path = None

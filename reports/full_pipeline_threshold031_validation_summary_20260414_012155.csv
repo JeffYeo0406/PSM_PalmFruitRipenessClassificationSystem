@@ -1,0 +1,3 @@
+expected_source,stage,count
+Non-palm,binary_gate_reject,10
+Palm,ripeness_classification,10
