@@ -3,11 +3,13 @@ import argparse
 import importlib
 import io
 import json
+import mimetypes
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -18,6 +20,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from path_compat import resolve_artifact, resolve_path
+from inference_db import build_stage_rows, init_inference_db, log_inference_event
 
 # Prefer LiteRT (ai_edge_litert); fall back to tflite_runtime.
 Interpreter = None
@@ -355,6 +358,14 @@ def preprocess_image_bytes(image_bytes: bytes) -> np.ndarray:
     return np.expand_dims(arr, axis=0)
 
 
+def _extract_image_dimensions(image_bytes: bytes) -> Tuple[Optional[int], Optional[int]]:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            return int(img.width), int(img.height)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
 def _quantize_input(batch: np.ndarray, input_details: dict) -> np.ndarray:
     scale, zero_point = input_details.get("quantization", (0.0, 0))
     dtype = input_details["dtype"]
@@ -443,16 +454,130 @@ def main():
     model_path = resolve_path(args.model) or args.model
     labels_path = resolve_path(args.labels) or args.labels
     image_path = resolve_path(args.image) or args.image
+    request_uid = f"cli-{time.strftime('%Y%m%d%H%M%S', time.gmtime())}-{uuid.uuid4().hex[:8]}"
+    image_name = os.path.basename(image_path)
+    image_mime_type = mimetypes.guess_type(image_path)[0]
+
+    try:
+        init_inference_db()
+    except Exception:  # noqa: BLE001
+        # DB logging is best effort and must not break CLI behavior.
+        pass
 
     try:
         labels = load_labels(labels_path)
         bundle = load_interpreter(model_path)
-        result = predict_file(image_path, bundle, labels, warmup=args.warmup, runs=args.runs)
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        image_width_px, image_height_px = _extract_image_dimensions(image_bytes)
+
+        result = predict_bytes(image_bytes, bundle, labels, warmup=args.warmup, runs=args.runs)
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="accepted",
+            prediction=result,
+            binary_threshold=PALM_BINARY_THRESHOLD,
+            inference_latency_ms=result["avg_ms"],
+        )
+        log_inference_event(
+            source_tag="cli",
+            request_uid=request_uid,
+            model_path=model_path,
+            labels_path=labels_path,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="accepted",
+            stage_rows=stage_rows,
+            image_name=image_name,
+            image_mime_type=image_mime_type,
+            image_size_bytes=len(image_bytes),
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=args.warmup,
+            timed_runs=args.runs,
+            inference_latency_ms=result["avg_ms"],
+            raw_result=result,
+        )
         print(json.dumps(result, indent=2))
     except InputValidationError as exc:
+        image_size_bytes = None
+        image_width_px, image_height_px = None, None
+        image_bytes = None
+        try:
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            image_size_bytes = len(image_bytes)
+            image_width_px, image_height_px = _extract_image_dimensions(image_bytes)
+        except Exception:  # noqa: BLE001
+            pass
+
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="gate_rejected",
+            error_code_tag=exc.code,
+            error_message=exc.message,
+            hint_message=exc.hint,
+            details=exc.details,
+            binary_threshold=PALM_BINARY_THRESHOLD,
+        )
+        log_inference_event(
+            source_tag="cli",
+            request_uid=request_uid,
+            model_path=model_path,
+            labels_path=labels_path,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="gate_rejected",
+            stage_rows=stage_rows,
+            error_code_tag=exc.code,
+            error_message=exc.message,
+            hint_message=exc.hint,
+            image_name=image_name,
+            image_mime_type=image_mime_type,
+            image_size_bytes=image_size_bytes,
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=args.warmup,
+            timed_runs=args.runs,
+            raw_error=exc.to_dict(),
+        )
         print(json.dumps(exc.to_dict(), indent=2))
         sys.exit(2)
     except Exception as exc:  # noqa: BLE001
+        image_size_bytes = None
+        image_width_px, image_height_px = None, None
+        try:
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            image_size_bytes = len(image_bytes)
+            image_width_px, image_height_px = _extract_image_dimensions(image_bytes)
+        except Exception:  # noqa: BLE001
+            pass
+
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="runtime_error",
+            error_code_tag="unexpected_error",
+            error_message=str(exc),
+            binary_threshold=PALM_BINARY_THRESHOLD,
+        )
+        log_inference_event(
+            source_tag="cli",
+            request_uid=request_uid,
+            model_path=model_path,
+            labels_path=labels_path,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="runtime_error",
+            stage_rows=stage_rows,
+            error_code_tag="unexpected_error",
+            error_message=str(exc),
+            image_name=image_name,
+            image_mime_type=image_mime_type,
+            image_size_bytes=image_size_bytes,
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=args.warmup,
+            timed_runs=args.runs,
+            raw_error={"error": str(exc)},
+        )
         print(json.dumps({"error": str(exc)}, indent=2))
         sys.exit(1)
 

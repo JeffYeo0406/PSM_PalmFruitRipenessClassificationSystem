@@ -119,3 +119,98 @@ This will:
 
 The INT8 model is production-ready for Raspberry Pi deployment with guaranteed accuracy retention!
 
+---
+
+## ✅ SQLite Inference Logging Implementation and Deployment (April 2026)
+
+### What Was Implemented
+
+A full SQLite-based inference logging layer is now integrated for both API and CLI runtime paths.
+
+- **Core module**: `inference_db.py`
+- **Auto-bootstrap**: schema is auto-created on first use with migration marker `001_initial_inference_logging_schema`
+- **SQLite runtime settings**: `foreign_keys=ON`, `busy_timeout=5000`, `journal_mode=WAL`, `synchronous=NORMAL`
+- **Model fingerprinting**: SHA-256 fingerprint from model bytes (stored in `model_registry`)
+
+#### Main Tables
+- `schema_migrations`
+- `model_registry`
+- `inference_requests`
+- `pipeline_stages`
+- `validation_runs`
+- `validation_annotations`
+
+#### Main Views
+- `v_request_pipeline_trace`
+- `v_validation_stage_summary`
+
+### Deterministic Pipeline Trace Design
+
+Every inference request writes exactly **3 stage rows** in fixed order:
+1. `binary_gate`
+2. `quality_gate`
+3. `ripeness_classification`
+
+This deterministic shape simplifies debugging, reporting, and deployment checks.
+
+### Runtime Integration Points
+
+#### API Integration (`api/app.py`)
+Database logging is executed for all key branches:
+- accepted inference (HTTP 200)
+- binary/quality gate reject (HTTP 422)
+- runtime unavailable (HTTP 503)
+- unexpected error/input error (HTTP 400)
+
+Captured fields include request UID, source tag, model paths, image metadata, stage outcomes, latency, HTTP status, and optional raw result/error JSON.
+
+#### CLI Integration (`scripts/pi_inference.py`)
+CLI path now logs both success and rejection/error outcomes with matching schema structure.
+
+### Deployment Configuration
+
+- **Environment variable**: `INFERENCE_DB_PATH`
+- **Default DB path**: `reports/inference_log.db`
+- **Write behavior**: logging is best-effort and non-fatal (inference continues even if DB write fails)
+
+### Validation and Smoke-Test Results
+
+End-to-end deployment checks were executed and passed.
+
+#### Real Dry-Run Evidence
+- API Palm sample: HTTP 200, label `Underripe`, probability `0.69140625`
+- API Non-palm sample: HTTP 422, `error_code=not_palm_fruit`
+- CLI Palm sample: exit code `0` (accepted)
+- CLI Non-palm sample: exit code `2` (`not_palm_fruit` rejection)
+- Smoke check: **PASS**
+- Schema verification: `tables_checked=6`, `indexes_checked=6`, `views_checked=2`
+- DB delta (single full dry-run): `+4` request rows, `+12` stage rows
+- New source split: `api=2`, `cli=2`
+
+### Operational Scripts
+
+#### Schema Smoke Check
+```bash
+python scripts/smoke_check_inference_db.py
+python scripts/smoke_check_inference_db.py --db reports/inference_log.db
+```
+
+#### Full Pre-Deploy Dry Run
+```bash
+python scripts/predeploy_dry_run.py
+python scripts/predeploy_dry_run.py --palm-dir "C:/Users/jeffy/Documents/PSM/PalmDetector/Palm" --non-palm-dir "C:/Users/jeffy/Documents/PSM/PalmDetector/Non-palm" --db reports/inference_log.db
+```
+
+#### Quick Cleanup of Generated Runtime Artifacts
+```bash
+python scripts/cleanup_runtime_artifacts.py
+python scripts/cleanup_runtime_artifacts.py --keep-db --all-pyc
+```
+
+### Production Readiness Summary
+
+- SQLite logging is fully integrated for API and CLI
+- Trace format is deterministic and queryable via compatibility views
+- Deployment checks pass on real Palm and Non-palm samples
+- Operational scripts are available for smoke-test, pre-deploy validation, and cleanup
+

@@ -1,12 +1,14 @@
+import io
 import logging
 import os
 import sys
 import threading
 import time
 import uuid
-from typing import Set
+from typing import Optional, Set, Tuple
 
 from flask import Flask, jsonify, request
+from PIL import Image
 from werkzeug.exceptions import RequestEntityTooLarge
 
 try:
@@ -23,13 +25,17 @@ from scripts.pi_inference import (  # noqa: E402
     DEFAULT_MODEL,
     DEFAULT_RUNS,
     DEFAULT_WARMUP,
+    ENABLE_PALM_BINARY_GATE,
     ensure_input_gate_ready,
     InputValidationError,
     get_input_gate_config,
     load_interpreter,
     load_labels,
+    PALM_BINARY_MODEL_PATH,
+    PALM_BINARY_THRESHOLD,
     predict_bytes,
 )
+from inference_db import build_stage_rows, init_inference_db, log_inference_event  # noqa: E402
 from path_compat import resolve_artifact  # noqa: E402
 
 def _resolve_path(p: str) -> str:
@@ -107,6 +113,20 @@ model_load_error = None
 interpreter_lock = threading.Lock()
 results_store = {}
 results_lock = threading.Lock()
+
+
+def _extract_image_dimensions(image_bytes: bytes) -> Tuple[Optional[int], Optional[int]]:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            return int(img.width), int(img.height)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+try:
+    init_inference_db()
+except Exception as exc:  # noqa: BLE001
+    logging.warning("Inference DB init failed, continuing without DB logging: %s", exc)
 
 
 def _load_runtime_artifacts():
@@ -194,12 +214,45 @@ def classify():
         return jsonify({"error": f"unsupported content-type: {content_type}"}), 415
 
     image_bytes = file.read()
+    image_width_px, image_height_px = _extract_image_dimensions(image_bytes)
+    image_name = file.filename or None
     req_id = uuid.uuid4().hex[:8]
     api_start = time.perf_counter()
+
     try:
         with interpreter_lock:
             if not _ensure_runtime_ready():
-                return jsonify({"error": model_load_error or "model runtime unavailable"}), 503
+                error_message = model_load_error or "model runtime unavailable"
+                api_latency = (time.perf_counter() - api_start) * 1000
+                stage_rows = build_stage_rows(
+                    gate_enabled=ENABLE_PALM_BINARY_GATE,
+                    request_outcome_tag="runtime_error",
+                    error_code_tag="runtime_unavailable",
+                    error_message=error_message,
+                    binary_threshold=PALM_BINARY_THRESHOLD,
+                )
+                log_inference_event(
+                    source_tag="api",
+                    request_uid=req_id,
+                    model_path=MODEL_PATH,
+                    labels_path=LABELS_PATH,
+                    binary_model_path=PALM_BINARY_MODEL_PATH,
+                    request_outcome_tag="runtime_error",
+                    stage_rows=stage_rows,
+                    error_code_tag="runtime_unavailable",
+                    error_message=error_message,
+                    image_name=image_name,
+                    image_mime_type=content_type,
+                    image_size_bytes=len(image_bytes),
+                    image_width_px=image_width_px,
+                    image_height_px=image_height_px,
+                    warmup_runs=WARMUP_RUNS,
+                    timed_runs=RUNS,
+                    api_latency_ms=api_latency,
+                    http_status_code=503,
+                    raw_error={"error": error_message},
+                )
+                return jsonify({"error": error_message}), 503
 
             result = predict_bytes(
                 image_bytes,
@@ -210,6 +263,38 @@ def classify():
             )
     except InputValidationError as exc:
         logging.info("req=%s rejected by input gate: %s", req_id, exc.message)
+        api_latency = (time.perf_counter() - api_start) * 1000
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="gate_rejected",
+            error_code_tag=exc.code,
+            error_message=exc.message,
+            hint_message=exc.hint,
+            details=exc.details,
+            binary_threshold=PALM_BINARY_THRESHOLD,
+        )
+        log_inference_event(
+            source_tag="api",
+            request_uid=req_id,
+            model_path=MODEL_PATH,
+            labels_path=LABELS_PATH,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="gate_rejected",
+            stage_rows=stage_rows,
+            error_code_tag=exc.code,
+            error_message=exc.message,
+            hint_message=exc.hint,
+            image_name=image_name,
+            image_mime_type=content_type,
+            image_size_bytes=len(image_bytes),
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=WARMUP_RUNS,
+            timed_runs=RUNS,
+            api_latency_ms=api_latency,
+            http_status_code=422,
+            raw_error=exc.to_dict(),
+        )
         payload = {
             "request_id": req_id,
             **exc.to_dict(),
@@ -217,9 +302,67 @@ def classify():
         return jsonify(payload), 422
     except RuntimeError as exc:
         logging.warning("req=%s runtime unavailable: %s", req_id, exc)
+        api_latency = (time.perf_counter() - api_start) * 1000
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="runtime_error",
+            error_code_tag="runtime_unavailable",
+            error_message=str(exc),
+            binary_threshold=PALM_BINARY_THRESHOLD,
+        )
+        log_inference_event(
+            source_tag="api",
+            request_uid=req_id,
+            model_path=MODEL_PATH,
+            labels_path=LABELS_PATH,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="runtime_error",
+            stage_rows=stage_rows,
+            error_code_tag="runtime_unavailable",
+            error_message=str(exc),
+            image_name=image_name,
+            image_mime_type=content_type,
+            image_size_bytes=len(image_bytes),
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=WARMUP_RUNS,
+            timed_runs=RUNS,
+            api_latency_ms=api_latency,
+            http_status_code=503,
+            raw_error={"error": str(exc)},
+        )
         return jsonify({"request_id": req_id, "error": str(exc)}), 503
     except Exception as exc:  # noqa: BLE001
         logging.warning("req=%s classify failed: %s", req_id, exc)
+        api_latency = (time.perf_counter() - api_start) * 1000
+        stage_rows = build_stage_rows(
+            gate_enabled=ENABLE_PALM_BINARY_GATE,
+            request_outcome_tag="input_error",
+            error_code_tag="unexpected_error",
+            error_message=str(exc),
+            binary_threshold=PALM_BINARY_THRESHOLD,
+        )
+        log_inference_event(
+            source_tag="api",
+            request_uid=req_id,
+            model_path=MODEL_PATH,
+            labels_path=LABELS_PATH,
+            binary_model_path=PALM_BINARY_MODEL_PATH,
+            request_outcome_tag="input_error",
+            stage_rows=stage_rows,
+            error_code_tag="unexpected_error",
+            error_message=str(exc),
+            image_name=image_name,
+            image_mime_type=content_type,
+            image_size_bytes=len(image_bytes),
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+            warmup_runs=WARMUP_RUNS,
+            timed_runs=RUNS,
+            api_latency_ms=api_latency,
+            http_status_code=400,
+            raw_error={"error": str(exc)},
+        )
         return jsonify({"request_id": req_id, "error": str(exc)}), 400
 
     api_latency = (time.perf_counter() - api_start) * 1000
@@ -242,6 +385,34 @@ def classify():
         "api_ms": api_latency,
         "runs": result["runs"],
     }
+
+    success_stage_rows = build_stage_rows(
+        gate_enabled=ENABLE_PALM_BINARY_GATE,
+        request_outcome_tag="accepted",
+        prediction=result,
+        binary_threshold=PALM_BINARY_THRESHOLD,
+        inference_latency_ms=result["avg_ms"],
+    )
+    log_inference_event(
+        source_tag="api",
+        request_uid=req_id,
+        model_path=MODEL_PATH,
+        labels_path=LABELS_PATH,
+        binary_model_path=PALM_BINARY_MODEL_PATH,
+        request_outcome_tag="accepted",
+        stage_rows=success_stage_rows,
+        image_name=image_name,
+        image_mime_type=content_type,
+        image_size_bytes=len(image_bytes),
+        image_width_px=image_width_px,
+        image_height_px=image_height_px,
+        warmup_runs=WARMUP_RUNS,
+        timed_runs=RUNS,
+        inference_latency_ms=result["avg_ms"],
+        api_latency_ms=api_latency,
+        http_status_code=200,
+        raw_result=result,
+    )
 
     with results_lock:
         _purge_expired_results()
