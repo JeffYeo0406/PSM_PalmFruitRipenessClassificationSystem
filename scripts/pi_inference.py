@@ -43,6 +43,7 @@ if Interpreter is None:
 
 
 IMG_SIZE = (224, 224)
+SUPPORTED_PREPROCESS_FAMILIES = {"mobilenet_v2", "mobilenet_v3", "none"}
 
 
 def _preprocess_mobilenet_v2(arr: np.ndarray) -> np.ndarray:
@@ -50,11 +51,31 @@ def _preprocess_mobilenet_v2(arr: np.ndarray) -> np.ndarray:
     return (arr.astype(np.float32) / 127.5) - 1.0
 
 
+def _preprocess_mobilenet_v3(arr: np.ndarray) -> np.ndarray:
+    """MobileNetV3 default path with in-model preprocessing enabled."""
+    return arr.astype(np.float32)
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_preprocess_family(raw_value: Optional[str], default: str = "mobilenet_v2") -> str:
+    value = (raw_value or default).strip().lower()
+    aliases = {
+        "mv2": "mobilenet_v2",
+        "mv3": "mobilenet_v3",
+    }
+    value = aliases.get(value, value)
+    if value not in SUPPORTED_PREPROCESS_FAMILIES:
+        raise ValueError(
+            f"Unsupported MODEL_PREPROCESS_FAMILY '{raw_value}'. "
+            f"Expected one of: {sorted(SUPPORTED_PREPROCESS_FAMILIES)}"
+        )
+    return value
 
 
 DEFAULT_MODEL = resolve_artifact(
@@ -93,6 +114,10 @@ DEFAULT_LABELS = resolve_artifact(
 )
 DEFAULT_WARMUP = int(os.getenv("WARMUP_RUNS", "1"))
 DEFAULT_RUNS = int(os.getenv("RUNS", "3"))
+MODEL_PREPROCESS_FAMILY = _normalize_preprocess_family(
+    os.getenv("MODEL_PREPROCESS_FAMILY"),
+    default="mobilenet_v2",
+)
 MAX_FILE_BYTES = 10 * 1024 * 1024  # guardrail for API uploads
 
 # Quick image gate (hard reject) before ripeness inference
@@ -343,10 +368,20 @@ def get_input_gate_config() -> Dict[str, Any]:
         "palm_binary_threshold": PALM_BINARY_THRESHOLD,
         "palm_binary_palm_index": PALM_BINARY_PALM_INDEX,
         "palm_binary_apply_preprocess": PALM_BINARY_APPLY_PREPROCESS,
+        "model_preprocess_family": MODEL_PREPROCESS_FAMILY,
     }
 
 
-def preprocess_image_bytes(image_bytes: bytes) -> np.ndarray:
+def _apply_model_preprocess(arr: np.ndarray, preprocess_family: str) -> np.ndarray:
+    family = _normalize_preprocess_family(preprocess_family, default=MODEL_PREPROCESS_FAMILY)
+    if family == "mobilenet_v2":
+        return _preprocess_mobilenet_v2(arr)
+    if family == "mobilenet_v3":
+        return _preprocess_mobilenet_v3(arr)
+    return arr.astype(np.float32)
+
+
+def preprocess_image_bytes(image_bytes: bytes, preprocess_family: str = MODEL_PREPROCESS_FAMILY) -> np.ndarray:
     if len(image_bytes) > MAX_FILE_BYTES:
         raise ValueError("image payload is too large")
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -354,7 +389,7 @@ def preprocess_image_bytes(image_bytes: bytes) -> np.ndarray:
     _validate_image_gate(raw_arr)
     img = img.resize(IMG_SIZE)
     arr = np.array(img, dtype=np.float32)
-    arr = _preprocess_mobilenet_v2(arr)
+    arr = _apply_model_preprocess(arr, preprocess_family)
     return np.expand_dims(arr, axis=0)
 
 
@@ -402,8 +437,9 @@ def predict_bytes(
     labels: List[str],
     warmup: int = DEFAULT_WARMUP,
     runs: int = DEFAULT_RUNS,
+    preprocess_family: str = MODEL_PREPROCESS_FAMILY,
 ):
-    batch = preprocess_image_bytes(image_bytes)
+    batch = preprocess_image_bytes(image_bytes, preprocess_family=preprocess_family)
     batch = _quantize_input(batch, bundle.input_details)
 
     for _ in range(max(0, warmup)):
@@ -436,10 +472,18 @@ def predict_file(
     labels: List[str],
     warmup: int = DEFAULT_WARMUP,
     runs: int = DEFAULT_RUNS,
+    preprocess_family: str = MODEL_PREPROCESS_FAMILY,
 ):
     with open(image_path, "rb") as f:
         image_bytes = f.read()
-    return predict_bytes(image_bytes, bundle, labels, warmup=warmup, runs=runs)
+    return predict_bytes(
+        image_bytes,
+        bundle,
+        labels,
+        warmup=warmup,
+        runs=runs,
+        preprocess_family=preprocess_family,
+    )
 
 
 def main():
@@ -449,6 +493,12 @@ def main():
     parser.add_argument("--image", required=True, help="Path to image for inference")
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS, help="Number of timed runs")
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="Warmup iterations before timing")
+    parser.add_argument(
+        "--preprocess-family",
+        default=MODEL_PREPROCESS_FAMILY,
+        choices=sorted(SUPPORTED_PREPROCESS_FAMILIES),
+        help="Model input preprocessing family.",
+    )
     args = parser.parse_args()
 
     model_path = resolve_path(args.model) or args.model
@@ -471,7 +521,14 @@ def main():
             image_bytes = f.read()
         image_width_px, image_height_px = _extract_image_dimensions(image_bytes)
 
-        result = predict_bytes(image_bytes, bundle, labels, warmup=args.warmup, runs=args.runs)
+        result = predict_bytes(
+            image_bytes,
+            bundle,
+            labels,
+            warmup=args.warmup,
+            runs=args.runs,
+            preprocess_family=args.preprocess_family,
+        )
         stage_rows = build_stage_rows(
             gate_enabled=ENABLE_PALM_BINARY_GATE,
             request_outcome_tag="accepted",

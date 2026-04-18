@@ -1,7 +1,7 @@
 """
 Convert a Keras .h5 checkpoint to TFLite formats (FP32, FP16, optional INT8).
 Usage:
-    python scripts/convert_tflite.py --h5 palm_ripeness_best_20260311_190150.h5 --rep-data /path/to/train --output-dir models [--labels labels.json]
+    python scripts/convert_tflite.py --h5 palm_ripeness_best_20260311_190150.h5 --rep-data /path/to/train --output-dir models [--labels labels.json] [--preprocess-family mobilenet_v2]
 
 If --labels is omitted, class names are auto-detected from --rep-data (folder names under class subdirs).
 """
@@ -14,10 +14,33 @@ from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_input_mobilenet_v2
+from tensorflow.keras.applications.mobilenet_v3 import preprocess_input as preprocess_input_mobilenet_v3
 
 
-def representative_dataset(data_dir: str, img_size: Tuple[int, int], take: int = 500) -> Iterable:
+SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "none")
+
+
+def _apply_preprocess(img: tf.Tensor, preprocess_family: str) -> tf.Tensor:
+    family = (preprocess_family or "mobilenet_v2").strip().lower()
+    if family == "mobilenet_v2":
+        return preprocess_input_mobilenet_v2(img)
+    if family == "mobilenet_v3":
+        return preprocess_input_mobilenet_v3(img)
+    if family == "none":
+        return tf.cast(img, tf.float32)
+    raise ValueError(
+        f"Unsupported preprocess family: {preprocess_family}. "
+        f"Expected one of {SUPPORTED_PREPROCESS_FAMILIES}."
+    )
+
+
+def representative_dataset(
+    data_dir: str,
+    img_size: Tuple[int, int],
+    take: int = 500,
+    preprocess_family: str = "mobilenet_v2",
+) -> Iterable:
     files = tf.data.Dataset.list_files(str(Path(data_dir) / "*" / "*.*"), shuffle=False)
 
     def _load(path):
@@ -25,7 +48,7 @@ def representative_dataset(data_dir: str, img_size: Tuple[int, int], take: int =
         img = tf.image.decode_image(img, channels=3)
         img.set_shape([None, None, 3])
         img = tf.image.resize(img, img_size)
-        img = preprocess_input(img)
+        img = _apply_preprocess(img, preprocess_family)
         return tf.expand_dims(img, 0)
 
     for batch in files.map(_load).take(take):
@@ -49,9 +72,23 @@ def save_labels(labels: List[str], output_dir: Path, timestamp: str) -> Path:
     return out
 
 
-def convert_model(h5_path: str, labels_path: Optional[str], output_dir: str, rep_data: str, img_size: int):
+def convert_model(
+    h5_path: str,
+    labels_path: Optional[str],
+    output_dir: str,
+    rep_data: str,
+    img_size: int,
+    preprocess_family: str = "mobilenet_v2",
+):
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    preprocess_family = (preprocess_family or "mobilenet_v2").strip().lower()
+    if preprocess_family not in SUPPORTED_PREPROCESS_FAMILIES:
+        raise ValueError(
+            f"Unsupported --preprocess-family '{preprocess_family}'. "
+            f"Choose one of: {SUPPORTED_PREPROCESS_FAMILIES}."
+        )
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     base = output_dir_path / f"palm_ripeness_best_{timestamp}"
@@ -94,7 +131,11 @@ def convert_model(h5_path: str, labels_path: Optional[str], output_dir: str, rep
     int8_path = None
     if rep_data:
         converter = tf.lite.TFLiteConverter.from_keras_model(model)
-        rep_fn = lambda: representative_dataset(rep_data, (img_size, img_size))
+        rep_fn = lambda: representative_dataset(
+            rep_data,
+            (img_size, img_size),
+            preprocess_family=preprocess_family,
+        )
         int8_path = _convert(converter, "int8", optimizations=[tf.lite.Optimize.DEFAULT], rep_fn=rep_fn)
     else:
         print("Skipping INT8 conversion (no --rep-data provided)")
@@ -104,6 +145,7 @@ def convert_model(h5_path: str, labels_path: Optional[str], output_dir: str, rep
         "source_h5": str(Path(h5_path).resolve()),
         "labels": str(Path(labels_out).resolve()),
         "img_size": img_size,
+        "preprocess_family": preprocess_family,
         "class_names": labels,
         "artifacts": {
             "fp32": str(Path(fp32_path).resolve()),
@@ -131,9 +173,22 @@ def parse_args():
         help="Root folder with class subfolders for INT8 representative dataset and label detection.",
     )
     parser.add_argument("--img-size", type=int, default=224, help="Square image size used during training")
+    parser.add_argument(
+        "--preprocess-family",
+        default="mobilenet_v2",
+        choices=SUPPORTED_PREPROCESS_FAMILIES,
+        help="Input preprocessing family used during model training.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    convert_model(args.h5, args.labels, args.output_dir, args.rep_data, args.img_size)
+    convert_model(
+        args.h5,
+        args.labels,
+        args.output_dir,
+        args.rep_data,
+        args.img_size,
+        preprocess_family=args.preprocess_family,
+    )

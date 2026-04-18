@@ -1,0 +1,18 @@
+{
+  "timestamp": "20260418_215129",
+  "source": "notebook_fallback_conversion",
+  "source_h5": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\notebooks\\saved_models\\palm_ripeness_best_20260418_214309.h5",
+  "labels": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\models\\labels_20260418_215129.json",
+  "img_size": 224,
+  "preprocess_family": "mobilenet_v3",
+  "class_names": [
+    "Overripe",
+    "Ripe",
+    "Underripe"
+  ],
+  "artifacts": {
+    "fp32": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\models\\palm_ripeness_best_20260418_215129_fp32.tflite",
+    "float16": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\models\\palm_ripeness_best_20260418_215129_float16.tflite",
+    "int8": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\models\\palm_ripeness_best_20260418_215129_int8.tflite"
+  }
+}

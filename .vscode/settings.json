@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "&": true,
+        "/^\\$f = Get-Item \"models/palm_ripeness_best_20260418_215129_int8\\.tflite\"; \"\\{0:N2\\}\" -f \\(\\$f\\.Length / 1MB\\)$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
