@@ -1,4 +1,5 @@
 tensorflow
+tensorflow-model-optimization
 keras
 pillow
 numpy

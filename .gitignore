@@ -1,0 +1,55 @@
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+.env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Test artifacts
+test_*.jpg
+test_*.png
+reports/api_smoke.jpg
+
+# Temporary debug scripts
+fix_model.py
+inspect_model.py
+test_load.py
+scripts/convert_tflite_temp.py
+scripts/manual_convert.py

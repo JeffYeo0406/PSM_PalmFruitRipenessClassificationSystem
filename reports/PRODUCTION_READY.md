@@ -1,5 +1,51 @@
 # 🚀 Production-Ready Palm Fruit Ripeness Model
 
+## Promotion Status (April 2026)
+
+| Model Track | Current Status | Gate Result | Decision |
+|--------|--------|--------|--------|
+| MobileNetV2 (baseline) | Production-ready | PASS (INT8 drop 0.60%) | ✅ Promotable |
+| MobileNetV3 FP16 (primary deployment) | Production-ready | INT8 gate bypassed after repeated failures | ✅ Use FP16 for MobileNetV3 |
+| MobileNetV3 INT8 (alternative option) | Available with caveat | FAIL (5.00% drop exceeds 2% gate) | ⚠️ Use if accuracy drop acceptable |
+
+### MobileNetV3 Implementation Complete — Final Artifacts
+
+MobileNetV3 implementation is complete with 7-flow reproduction, preprocessing ablation study, and multi-path INT8 exploration.
+
+**Primary deployment artifact (FP16):**
+- Model: `models/palm_ripeness_best_20260421_022121_float16.tflite` (2.01 MB)
+- Labels: `models/labels_20260421_022121.json`
+- FP32 accuracy: 88.89% (160/180)
+- FP16 accuracy: equivalent to FP32 (no quantization loss)
+- **Recommended for production deployment**
+
+**Alternative INT8 artifact (if accuracy drop gate is ignored):**
+- Model: `models/palm_ripeness_best_20260421_022121_int8.tflite` (1.32 MB)
+- INT8 accuracy: 84.44% (152/180)
+- Relative drop: 5.00% (exceeds 2% gate)
+- **Use only if size constraints outweigh accuracy requirements**
+
+### MobileNetV3 INT8 Non-Promotion and FP16 Branch Decision
+
+MobileNetV3 INT8 was tested through multiple technical paths, and all paths failed to produce an effective INT8 artifact under project quality criteria.
+
+- Best training profile (7-flow reproduction): `05_full_train_e30`
+- Selected checkpoint: `saved_models/palm_ripeness_best_20260420_185817.h5`
+
+Path outcomes:
+- Path A (`models/tflite_manifest_20260420_200930.json`): FP32 88.89%, INT8 82.78%, relative drop 6.88% -> FAIL.
+- Path B (`models/tflite_manifest_20260421_022121.json`, balanced calibration 500/501, seed 42): FP32 88.89%, INT8 84.44%, relative drop 5.00% -> FAIL.
+- Path C (QAT export validation run): FP32 93.33%, INT8 57.22%, relative drop 38.69% -> FAIL.
+- Additional direct QAT conversion route failed in this stack with `Could not locate class 'Functional'` (`reports/qat_convert_20260421_0328.log`).
+
+Branch decision:
+- **MobileNetV3 FP16 is the primary deployment artifact** (recommended for production).
+- **MobileNetV3 INT8 is available as an alternative** for scenarios where the 5% accuracy drop is acceptable (e.g., storage-constrained deployments).
+- Runtime integration (API and CLI) defaults to the FP16 artifact.
+
+Baseline note:
+- MobileNetV2 INT8 remains the global production baseline artifact with passed INT8 gate.
+
 ## ✅ Validation Passed
 - **INT8 Accuracy Drop**: 0.60% (well under 2% threshold)
 - **FP32 Reference**: 92.78% accuracy

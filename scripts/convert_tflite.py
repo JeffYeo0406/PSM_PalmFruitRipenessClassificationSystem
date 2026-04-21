@@ -9,8 +9,9 @@ If --labels is omitted, class names are auto-detected from --rep-data (folder na
 import argparse
 import datetime
 import json
+import random
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -19,6 +20,63 @@ from tensorflow.keras.applications.mobilenet_v3 import preprocess_input as prepr
 
 
 SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "none")
+SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
+
+
+def _build_mobilenetv3_fallback_model(img_size: int, num_classes: int) -> tf.keras.Model:
+    """Rebuild known MobileNetV3 training architecture for H5 weight loading fallback."""
+    input_tensor = tf.keras.Input(shape=(img_size, img_size, 3), name="image")
+    x = tf.keras.Sequential(
+        [
+            tf.keras.layers.RandomFlip("horizontal"),
+            tf.keras.layers.RandomRotation(0.15),
+            tf.keras.layers.RandomZoom(0.10),
+        ],
+        name="data_augmentation",
+    )(input_tensor)
+
+    base_model = tf.keras.applications.MobileNetV3Small(
+        input_shape=(img_size, img_size, 3),
+        include_top=False,
+        weights=None,
+        include_preprocessing=True,
+    )
+    x = base_model(x, training=False)
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.Dropout(0.30)(x)
+    x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.20)(x)
+    output_tensor = tf.keras.layers.Dense(num_classes, activation="softmax", name="ripeness_probs")(x)
+    return tf.keras.Model(input_tensor, output_tensor, name="PalmRipeness_MobileNetV3")
+
+
+def _load_model_resilient(h5_path: str, img_size: int, num_classes: int) -> tf.keras.Model:
+    """Load model from H5 with fallback for Keras3 positional-argument deserialization errors."""
+    try:
+        return tf.keras.models.load_model(h5_path, compile=False)
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc)
+
+        # QAT checkpoints contain tfmot custom quantization layers. Retry with quantize_scope.
+        if "Quantize" in message or "Unknown layer" in message:
+            try:
+                import tensorflow_model_optimization as tfmot
+
+                with tfmot.quantization.keras.quantize_scope():
+                    print("Retrying load with tfmot quantize_scope for QAT model...")
+                    return tf.keras.models.load_model(h5_path, compile=False)
+            except Exception as qat_exc:  # noqa: BLE001
+                print(f"QAT quantize_scope load attempt failed: {qat_exc}")
+
+        if "Only input tensors may be passed as positional arguments" not in message:
+            raise
+
+        print("Direct H5 load failed with Keras positional-argument error.")
+        print("Falling back to MobileNetV3 architecture reconstruction + weight loading...")
+        fallback_model = _build_mobilenetv3_fallback_model(img_size=img_size, num_classes=num_classes)
+        fallback_model.load_weights(h5_path)
+        return fallback_model
 
 
 def _apply_preprocess(img: tf.Tensor, preprocess_family: str) -> tf.Tensor:
@@ -28,6 +86,8 @@ def _apply_preprocess(img: tf.Tensor, preprocess_family: str) -> tf.Tensor:
     if family == "mobilenet_v3":
         return preprocess_input_mobilenet_v3(img)
     if family == "none":
+        if isinstance(img, np.ndarray):
+            return img.astype(np.float32)
         return tf.cast(img, tf.float32)
     raise ValueError(
         f"Unsupported preprocess family: {preprocess_family}. "
@@ -35,24 +95,76 @@ def _apply_preprocess(img: tf.Tensor, preprocess_family: str) -> tf.Tensor:
     )
 
 
-def representative_dataset(
+def _collect_balanced_representative_paths(
+    data_dir: str,
+    target_count: int,
+    seed: int,
+) -> List[Path]:
+    root = Path(data_dir)
+    class_dirs = sorted([p for p in root.iterdir() if p.is_dir()])
+    if not class_dirs:
+        raise ValueError(f"No class folders found under representative data root: {data_dir}")
+
+    per_class = max(1, (target_count + len(class_dirs) - 1) // len(class_dirs))
+    rng = random.Random(seed)
+
+    sampled: List[Path] = []
+    class_counts = {}
+    for class_dir in class_dirs:
+        files = sorted(
+            [
+                p
+                for p in class_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+            ]
+        )
+        if not files:
+            class_counts[class_dir.name] = 0
+            continue
+
+        shuffled = files[:]
+        rng.shuffle(shuffled)
+        selected = shuffled[: min(per_class, len(shuffled))]
+        sampled.extend(selected)
+        class_counts[class_dir.name] = len(selected)
+
+    if not sampled:
+        raise ValueError(
+            f"No image files found under representative data root: {data_dir}. "
+            f"Supported extensions: {SUPPORTED_IMAGE_EXTENSIONS}"
+        )
+
+    rng.shuffle(sampled)
+    print(
+        "[Calibration] strategy=balanced_per_class "
+        f"target={target_count} actual={len(sampled)} seed={seed} "
+        f"per_class_target={per_class} class_counts={class_counts}"
+    )
+    return sampled
+
+
+def make_balanced_representative_dataset(
     data_dir: str,
     img_size: Tuple[int, int],
     take: int = 500,
     preprocess_family: str = "mobilenet_v2",
-) -> Iterable:
-    files = tf.data.Dataset.list_files(str(Path(data_dir) / "*" / "*.*"), shuffle=False)
+    seed: int = 42,
+) -> Tuple[Callable[[], Iterable[List[np.ndarray]]], int]:
+    sampled_paths = _collect_balanced_representative_paths(
+        data_dir=data_dir,
+        target_count=take,
+        seed=seed,
+    )
 
-    def _load(path):
-        img = tf.io.read_file(path)
-        img = tf.image.decode_image(img, channels=3)
-        img.set_shape([None, None, 3])
-        img = tf.image.resize(img, img_size)
-        img = _apply_preprocess(img, preprocess_family)
-        return tf.expand_dims(img, 0)
+    def representative_dataset() -> Iterable[List[np.ndarray]]:
+        for path in sampled_paths:
+            img = tf.keras.preprocessing.image.load_img(str(path), target_size=img_size)
+            arr = tf.keras.preprocessing.image.img_to_array(img)
+            arr = _apply_preprocess(arr, preprocess_family)
+            arr = np.expand_dims(arr, axis=0).astype(np.float32)
+            yield [arr]
 
-    for batch in files.map(_load).take(take):
-        yield [batch]
+    return representative_dataset, len(sampled_paths)
 
 
 def detect_labels_from_dir(class_root: str) -> List[str]:
@@ -79,6 +191,8 @@ def convert_model(
     rep_data: str,
     img_size: int,
     preprocess_family: str = "mobilenet_v2",
+    take_rep: int = 500,
+    rep_seed: int = 42,
 ):
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -100,7 +214,7 @@ def convert_model(
     labels_out = save_labels(labels, output_dir_path, timestamp)
 
     print(f"Loading model from {h5_path}")
-    model = tf.keras.models.load_model(h5_path, compile=False)
+    model = _load_model_resilient(h5_path, img_size=img_size, num_classes=len(labels))
 
     def _convert(converter: tf.lite.TFLiteConverter, target: str, optimizations=None, rep_fn=None):
         if optimizations:
@@ -129,12 +243,15 @@ def convert_model(
     fp16_path = _convert(converter, "float16", optimizations=[tf.lite.Optimize.DEFAULT])
 
     int8_path = None
+    rep_actual_count = None
     if rep_data:
         converter = tf.lite.TFLiteConverter.from_keras_model(model)
-        rep_fn = lambda: representative_dataset(
+        rep_fn, rep_actual_count = make_balanced_representative_dataset(
             rep_data,
             (img_size, img_size),
+            take=take_rep,
             preprocess_family=preprocess_family,
+            seed=rep_seed,
         )
         int8_path = _convert(converter, "int8", optimizations=[tf.lite.Optimize.DEFAULT], rep_fn=rep_fn)
     else:
@@ -147,6 +264,12 @@ def convert_model(
         "img_size": img_size,
         "preprocess_family": preprocess_family,
         "class_names": labels,
+        "representative_calibration": {
+            "strategy": "balanced_per_class",
+            "target_count": take_rep if rep_data else None,
+            "actual_count": rep_actual_count,
+            "seed": rep_seed if rep_data else None,
+        },
         "artifacts": {
             "fp32": str(Path(fp32_path).resolve()),
             "float16": str(Path(fp16_path).resolve()),
@@ -179,6 +302,18 @@ def parse_args():
         choices=SUPPORTED_PREPROCESS_FAMILIES,
         help="Input preprocessing family used during model training.",
     )
+    parser.add_argument(
+        "--take-rep",
+        type=int,
+        default=500,
+        help="Target representative sample count for balanced INT8 calibration.",
+    )
+    parser.add_argument(
+        "--rep-seed",
+        type=int,
+        default=42,
+        help="Random seed for deterministic balanced representative sampling.",
+    )
     return parser.parse_args()
 
 
@@ -191,4 +326,6 @@ if __name__ == "__main__":
         args.rep_data,
         args.img_size,
         preprocess_family=args.preprocess_family,
+        take_rep=args.take_rep,
+        rep_seed=args.rep_seed,
     )

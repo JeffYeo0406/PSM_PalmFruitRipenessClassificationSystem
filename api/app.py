@@ -47,20 +47,21 @@ def _resolve_model_path() -> str:
         env_value=os.getenv("MODEL_PATH"),
         default_candidates=[
             os.path.relpath(DEFAULT_MODEL, ROOT_DIR) if os.path.isabs(DEFAULT_MODEL) else DEFAULT_MODEL,
+            "models/palm_ripeness_best_20260421_022121_float16.tflite",
             "models/palm_ripeness_best_int8.tflite",
             "saved_models/palm_ripeness_best_int8.tflite",
             "palm_ripeness_best_int8.tflite",
         ],
         glob_patterns=[
-            "models/palm_ripeness_best_*_int8.tflite",
             "models/palm_ripeness_best_*_float16.tflite",
             "models/palm_ripeness_best_*_float32.tflite",
-            "saved_models/palm_ripeness_best_*_int8.tflite",
+            "models/palm_ripeness_best_*_int8.tflite",
             "saved_models/palm_ripeness_best_*_float16.tflite",
             "saved_models/palm_ripeness_best_*_float32.tflite",
-            "palm_ripeness_best_*_int8.tflite",
+            "saved_models/palm_ripeness_best_*_int8.tflite",
             "palm_ripeness_best_*_float16.tflite",
             "palm_ripeness_best_*_float32.tflite",
+            "palm_ripeness_best_*_int8.tflite",
         ],
         allow_missing_default=True,
     )
@@ -72,6 +73,7 @@ def _resolve_labels_path() -> str:
         env_value=os.getenv("LABELS_PATH"),
         default_candidates=[
             os.path.relpath(DEFAULT_LABELS, ROOT_DIR) if os.path.isabs(DEFAULT_LABELS) else DEFAULT_LABELS,
+            "models/labels_20260421_022121.json",
             "models/labels.json",
             "saved_models/labels.json",
             "labels.json",

@@ -81,26 +81,28 @@ def _normalize_preprocess_family(raw_value: Optional[str], default: str = "mobil
 DEFAULT_MODEL = resolve_artifact(
     env_value=os.getenv("MODEL_PATH"),
     default_candidates=[
+        "models/palm_ripeness_best_20260421_022121_float16.tflite",
         "models/palm_ripeness_best_int8.tflite",
         "saved_models/palm_ripeness_best_int8.tflite",
         "palm_ripeness_best_int8.tflite",
     ],
     glob_patterns=[
-        "models/palm_ripeness_best_*_int8.tflite",
         "models/palm_ripeness_best_*_float16.tflite",
         "models/palm_ripeness_best_*_float32.tflite",
-        "saved_models/palm_ripeness_best_*_int8.tflite",
+        "models/palm_ripeness_best_*_int8.tflite",
         "saved_models/palm_ripeness_best_*_float16.tflite",
         "saved_models/palm_ripeness_best_*_float32.tflite",
-        "palm_ripeness_best_*_int8.tflite",
+        "saved_models/palm_ripeness_best_*_int8.tflite",
         "palm_ripeness_best_*_float16.tflite",
         "palm_ripeness_best_*_float32.tflite",
+        "palm_ripeness_best_*_int8.tflite",
     ],
     allow_missing_default=True,
 )
 DEFAULT_LABELS = resolve_artifact(
     env_value=os.getenv("LABELS_PATH"),
     default_candidates=[
+        "models/labels_20260421_022121.json",
         "models/labels.json",
         "saved_models/labels.json",
         "labels.json",
@@ -116,7 +118,7 @@ DEFAULT_WARMUP = int(os.getenv("WARMUP_RUNS", "1"))
 DEFAULT_RUNS = int(os.getenv("RUNS", "3"))
 MODEL_PREPROCESS_FAMILY = _normalize_preprocess_family(
     os.getenv("MODEL_PREPROCESS_FAMILY"),
-    default="mobilenet_v2",
+    default="mobilenet_v3",
 )
 MAX_FILE_BYTES = 10 * 1024 * 1024  # guardrail for API uploads
 
