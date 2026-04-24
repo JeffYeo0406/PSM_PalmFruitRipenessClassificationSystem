@@ -168,6 +168,82 @@ After the initial 6.88% INT8 drop, additional quantization paths were tested.
 - FP16 artifact is production-ready and integrated into API/CLI runtime defaults.
 - INT8 artifact is available for scenarios where the 5% accuracy drop is acceptable.
 
+## ✅ EfficientNetB0 Training Reproduction and Conversion (April 2026)
+
+### 1) Training Reproduction (7 Flows, aligned with MobileNetV3 settings)
+
+Executed with `scripts/run_efficientnetb0_repro.py` and logged to `reports/experiment_log_efficientnetb0_repro.csv`.
+
+| Profile | Run Mode | Accuracy | Macro F1 |
+|---|---|---:|---:|
+| 01_smoke_test | smoke_test | 0.0000 | 0.0000 |
+| 02_full_train_e10 | full_train | 0.8333 | 0.8249 |
+| 03_full_train_e10_ft5 | full_train + fine_tune | 0.8667 | 0.8616 |
+| 04_full_train_e10_ft15 | full_train + fine_tune | 0.8722 | 0.8675 |
+| 05_full_train_e30 | full_train | **0.8778** | **0.8743** |
+| 06_full_train_e30_ft5 | full_train + fine_tune | 0.8167 | 0.8024 |
+| 07_full_train_e30_ft15 | full_train + fine_tune | 0.8722 | 0.8682 |
+
+Selected best checkpoint for conversion:
+- `saved_models/palm_ripeness_best_20260423_172644.h5`
+- Best-run summary: `reports/efficientnetb0_repro_best_run.json`
+
+### 2) Conversion Result (Best EfficientNetB0 Checkpoint)
+
+Converted with `scripts/convert_tflite.py --preprocess-family efficientnet`.
+
+Primary conversion set used for validation:
+- FP32: `models/palm_ripeness_best_20260423_214317_fp32.tflite`
+- FP16: `models/palm_ripeness_best_20260423_214317_float16.tflite`
+- INT8: `models/palm_ripeness_best_20260423_214317_int8.tflite`
+- Labels: `models/labels_20260423_214317.json`
+- Manifest: `models/tflite_manifest_20260423_214317.json`
+
+Note:
+- A subsequent conversion rerun also produced a second equivalent artifact set with timestamp `20260423_214325`.
+
+### 3) Validation Result (INT8 Gate Check)
+
+Validation command path:
+- `scripts/validate_tflite.py --preprocess-family efficientnet`
+
+Measured results on test set (180 images):
+- FP32 Accuracy: 86.67% (156/180)
+- INT8 Accuracy: 81.11% (146/180)
+- Absolute Drop: 5.56%
+- Relative Drop: **6.41%**
+- Gate Verdict: **FAIL** (required < 2%)
+
+### 4) Runtime Smoke Checks
+
+API smoke test:
+- Started `api/app.py` with EfficientNetB0 FP32 artifact and labels.
+- `/health` endpoint returned HTTP 200.
+- Health payload indicated runtime warning: palm binary gate enabled but no binary gate model found.
+
+CLI smoke test:
+- `scripts/pi_inference.py` invocation with EfficientNetB0 FP32 artifact returned:
+   - `Palm binary gate is enabled but no binary model was found...`
+- This is an environment/runtime configuration issue (binary gate dependency), not a model conversion failure.
+
+### 5) EfficientNetB0 Deployment Decision
+
+- INT8 for EfficientNetB0 is classified as non-effective under current gate policy due to 6.41% relative drop.
+- Deployment recommendation mirrors MobileNetV3 decision pattern:
+   - **Primary artifact: FP16** (no quantization-induced accuracy loss relative to FP32 expected behavior)
+   - **Alternative artifact: INT8** only if accuracy loss is acceptable for strict size constraints.
+
+### 6) Implementation Changes Completed in This Session
+
+- Added new reproduction script:
+   - `scripts/run_efficientnetb0_repro.py`
+- Patched validator to support EfficientNet preprocessing family:
+   - `scripts/validate_tflite.py`
+   - Added `efficientnet` to supported preprocess families
+   - Added EfficientNet preprocess dispatch in `_apply_preprocess(...)`
+- Updated model-selection summary document:
+   - `reports/Model.md`
+
 ## 📊 How to Know Parameter Amounts in Different TFLite Models
 
 I've created a comprehensive analysis script that shows exactly how to determine parameter counts in TFLite models. Here's what you need to know:

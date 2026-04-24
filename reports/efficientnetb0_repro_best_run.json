@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-04-23T17:52:08",
+  "repro_log": "C:\\Users\\jeffy\\Documents\\PSM\\Project Coding\\PSM_PalmFruitRipenessClassificationSystem\\reports\\experiment_log_efficientnetb0_repro.csv",
+  "profiles_run": 7,
+  "selection_rule": "max accuracy, then macro_f1",
+  "best_efficientnetb0": {
+    "timestamp": "20260423_172644",
+    "run_mode": "full_train",
+    "epochs_config": 30,
+    "fine_tune_epochs": 0,
+    "batch_size": 32,
+    "val_split": 0.2,
+    "initial_learning_rate": 0.0001,
+    "final_learning_rate": 0.0001,
+    "backbone_unfrozen": false,
+    "train_images": 1200,
+    "test_images": 180,
+    "num_classes": 3,
+    "accuracy": 0.8778,
+    "macro_precision": 0.9042,
+    "macro_recall": 0.8778,
+    "macro_f1": 0.8743,
+    "best_model_file": "saved_models\\palm_ripeness_best_20260423_172644.h5",
+    "excel_report": "reports\\classification_report_20260423_172644.xlsx",
+    "notes": "profile=05_full_train_e30; model=EfficientNetB0; preprocess_family=efficientnet; include_preprocessing_layer=True; effective_warmup_epochs=30"
+  },
+  "baseline_best": null,
+  "conversion_outputs": null
+}

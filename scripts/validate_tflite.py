@@ -12,9 +12,10 @@ from pathlib import Path
 from tqdm import tqdm
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_input_mobilenet_v2
 from tensorflow.keras.applications.mobilenet_v3 import preprocess_input as preprocess_input_mobilenet_v3
+from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_input_efficientnet
 
 
-SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "none")
+SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "efficientnet", "none")
 
 def load_interpreter(model_path, prefer_reference_kernels=False):
     """Load TFLite interpreter with fallback chain.
@@ -53,6 +54,8 @@ def _apply_preprocess(img, preprocess_family="mobilenet_v2"):
         return preprocess_input_mobilenet_v2(img)
     if family == "mobilenet_v3":
         return preprocess_input_mobilenet_v3(img)
+    if family == "efficientnet":
+        return preprocess_input_efficientnet(img)
     if family == "none":
         return tf.cast(img, tf.float32)
     raise ValueError(

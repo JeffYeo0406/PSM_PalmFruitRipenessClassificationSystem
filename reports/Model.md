@@ -225,14 +225,24 @@ The MobileNetV3 track is now fully implemented with:
 - Future work: explore advanced quantization techniques (e.g., per-channel quantization, mixed precision) to potentially improve INT8 quality.
 
 ### 7.3 EfficientNetB0
-1. Replace backbone with EfficientNetB0 while retaining classifier head policy as close as possible.
-2. Confirm preprocessing compatibility before full training.
-3. Train under identical protocol constraints.
-4. Export best h5 checkpoint.
-5. Convert to fp32/float16/int8 with same conversion settings.
-6. Validate on the same test set.
-7. Run runtime benchmark on Raspberry Pi to quantify latency and thermal behavior.
-8. Record whether accuracy gain compensates for runtime cost.
+**Implementation complete (April 2026).** Full 7-flow reproduction executed with same profile settings as MobileNetV3.
+
+**Primary deployment artifact (FP16 recommended over INT8):**
+- Best profile: `05_full_train_e30` (30 epochs warm-up, no fine-tuning) — accuracy 87.78%
+- Checkpoint: `saved_models/palm_ripeness_best_20260423_172644.h5`
+- TFLite artifacts: `models/palm_ripeness_best_20260423_214317_{fp32,float16,int8}.tflite`
+- FP32 accuracy: 86.67% (156/180)
+- FP16 accuracy: equivalent to FP32 (no quantization-induced accuracy loss)
+- **INT8 gate FAIL:** Relative drop 6.41% (exceeds 2% threshold) — INT8 accuracy 81.11% (146/180)
+- Rationale: FP16 recommended as primary artifact (no accuracy penalty). INT8 available only if ~5.5% absolute accuracy drop is acceptable and size saving is critical.
+- Reproduction log: `reports/experiment_log_efficientnetb0_repro.csv`
+- Best-run summary: `reports/efficientnetb0_repro_best_run.json`
+
+**Notable observations:**
+- EfficientNetB0 achieves 87.78% (best profile) vs MobileNetV3's 88.89% — slightly lower accuracy
+- Fine-tuning profiles (06, 07) underperformed vs warm-up-only (05), suggesting EfficientNetB0 may overfit more easily with unfrozen backbone
+- INT8 quantization degraded more severely for EfficientNetB0 (6.41% relative drop) than MobileNetV3 (5.00% relative drop)
+- Larger model size than MobileNetV3 — trade-off between accuracy and latency on Pi should be evaluated
 
 ### 7.4 ShuffleNetV2
 1. Finalize implementation path:
@@ -253,7 +263,7 @@ The MobileNetV3 track is now fully implemented with:
 |---|---:|---:|---:|---:|---:|---:|---|
 | MobileNetV2 | 92.78% | 0.9282 | 92.22% | 0.60% | 2.76 | To update | Current measured baseline |
 | MobileNetV3 | 88.89% | 0.8872 | 84.44% | 5.00% | 1.32 | To update | **Implementation complete.** Primary: FP16 (`palm_ripeness_best_20260421_022121_float16.tflite`). Alternative: INT8 available if 5% drop acceptable. Multi-path INT8 attempts: PTQ 6.88%, balanced PTQ 5.00%, QAT 38.69% — all exceed 2% gate. |
-| EfficientNetB0 | To update | To update | To update | To update | To update | To update | Pending run |
+| EfficientNetB0 | 87.78% | 0.8743 | 81.11% | 6.41% | To update | To update | **Implementation complete.** Primary: FP16. INT8 gate FAIL (6.41% relative drop). Best profile: 05_full_train_e30 (87.78%). 7-flow reproduction completed April 2026. |
 | ShuffleNetV2 | To update | To update | To update | To update | To update | To update | Pending implementation path |
 
 ### 8.1.1 MobileNetV3 7-Flow Reproduction Summary (April 2026)
@@ -271,6 +281,22 @@ The MobileNetV3 track is now fully implemented with:
 Reference artifacts:
 - Reproduction log: `reports/experiment_log_mobilenetv3_repro.csv`
 - Best-run summary: `reports/mobilenetv3_repro_best_run.json`
+
+### 8.1.2 EfficientNetB0 7-Flow Reproduction Summary (April 2026)
+
+| Profile | Run Mode | Accuracy | Macro F1 |
+|---|---|---:|---:|
+| 01_smoke_test | smoke_test | 0.0000 | 0.0000 |
+| 02_full_train_e10 | full_train | 0.8333 | 0.8306 |
+| 03_full_train_e10_ft5 | full_train + fine_tune | 0.8667 | 0.8635 |
+| 04_full_train_e10_ft15 | full_train + fine_tune | 0.8722 | 0.8690 |
+| 05_full_train_e30 | full_train | 0.8778 | 0.8743 |
+| 06_full_train_e30_ft5 | full_train + fine_tune | 0.8167 | 0.8161 |
+| 07_full_train_e30_ft15 | full_train + fine_tune | 0.8722 | 0.8682 |
+
+Reference artifacts:
+- Reproduction log: `reports/experiment_log_efficientnetb0_repro.csv`
+- Best-run summary: `reports/efficientnetb0_repro_best_run.json`
 
 ### 8.2 Estimated Ranges (Planning Only, Not Final Evidence)
 | Model | Estimated accuracy range | Estimated latency trend vs MobileNetV2 | Confidence |

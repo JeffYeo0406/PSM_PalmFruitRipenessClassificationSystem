@@ -15,11 +15,12 @@ from typing import Callable, Iterable, List, Optional, Tuple
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_input_efficientnet
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_input_mobilenet_v2
 from tensorflow.keras.applications.mobilenet_v3 import preprocess_input as preprocess_input_mobilenet_v3
 
 
-SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "none")
+SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "efficientnet", "none")
 SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 
@@ -85,6 +86,8 @@ def _apply_preprocess(img: tf.Tensor, preprocess_family: str) -> tf.Tensor:
         return preprocess_input_mobilenet_v2(img)
     if family == "mobilenet_v3":
         return preprocess_input_mobilenet_v3(img)
+    if family == "efficientnet":
+        return preprocess_input_efficientnet(img.astype("float32"))
     if family == "none":
         if isinstance(img, np.ndarray):
             return img.astype(np.float32)

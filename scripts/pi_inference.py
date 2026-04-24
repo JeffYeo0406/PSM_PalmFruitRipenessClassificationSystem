@@ -43,7 +43,7 @@ if Interpreter is None:
 
 
 IMG_SIZE = (224, 224)
-SUPPORTED_PREPROCESS_FAMILIES = {"mobilenet_v2", "mobilenet_v3", "none"}
+SUPPORTED_PREPROCESS_FAMILIES = {"mobilenet_v2", "mobilenet_v3", "efficientnet", "none"}
 
 
 def _preprocess_mobilenet_v2(arr: np.ndarray) -> np.ndarray:
@@ -68,6 +68,7 @@ def _normalize_preprocess_family(raw_value: Optional[str], default: str = "mobil
     aliases = {
         "mv2": "mobilenet_v2",
         "mv3": "mobilenet_v3",
+        "efficientnetb0": "efficientnet",
     }
     value = aliases.get(value, value)
     if value not in SUPPORTED_PREPROCESS_FAMILIES:
@@ -380,6 +381,8 @@ def _apply_model_preprocess(arr: np.ndarray, preprocess_family: str) -> np.ndarr
         return _preprocess_mobilenet_v2(arr)
     if family == "mobilenet_v3":
         return _preprocess_mobilenet_v3(arr)
+    if family == "efficientnet":
+        return (arr.astype(np.float32) / 127.5) - 1.0
     return arr.astype(np.float32)
 
 
