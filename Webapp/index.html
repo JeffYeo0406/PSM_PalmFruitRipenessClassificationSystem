@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="theme-color" content="#0a1a10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PalmScan">
+<link rel="manifest" href="manifest.json">
+<title>PalmScan — Ripeness Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+/* ── TOKENS ──────────────────────────────────────────────────────── */
+:root{
+  --bg0:#0a1a10;--bg1:#0f2318;--bg2:#162e1e;--bg3:#1c3a26;--sf:#1f3d28;
+  --bd:rgba(255,255,255,.08);--bd2:rgba(255,255,255,.18);
+  --t0:#f0ede4;--t1:#b8c4b0;--t2:#7a9070;
+  --am:#e8a020;--abg:rgba(232,160,32,.13);
+  --gr:#4caf6e;--gbg:rgba(76,175,110,.13);
+  --re:#e05a4a;--rbg:rgba(224,90,74,.13);
+  --bl:#5ba3e0;--bbg:rgba(91,163,224,.11);
+  --fd:'DM Serif Display',serif;--fu:'Syne',sans-serif;--fm:'DM Mono',monospace;
+  --r:10px;--r2:18px;--tab:68px;
+}
+[data-theme="light"]{
+  --bg0:#f5f0e8;--bg1:#ede8dc;--bg2:#e4ddd0;--bg3:#d8d0c0;--sf:#fff;
+  --bd:rgba(0,0,0,.08);--bd2:rgba(0,0,0,.18);
+  --t0:#1a2a1e;--t1:#3d5440;--t2:#6a7a62;
+  --am:#a06010;--abg:rgba(160,96,16,.10);
+  --gr:#2d7a4a;--gbg:rgba(45,122,74,.10);
+  --re:#c04030;--rbg:rgba(192,64,48,.10);
+  --bl:#1a6aaa;--bbg:rgba(26,106,170,.10);
+}
+[data-theme="hc"]{
+  --bg0:#000;--bg1:#000;--bg2:#0a0a0a;--bg3:#111;--sf:#111;
+  --bd:rgba(255,255,255,.3);--bd2:rgba(255,255,255,.7);
+  --t0:#fff;--t1:#ffff66;--t2:#aaffaa;
+  --am:#ffcc00;--abg:rgba(255,204,0,.15);
+  --gr:#00ff88;--gbg:rgba(0,255,136,.12);
+  --re:#ff5544;--rbg:rgba(255,85,68,.12);
+  --bl:#66ccff;--bbg:rgba(102,204,255,.12);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg0);color:var(--t0);font-family:var(--fu);font-size:15px;line-height:1.6;transition:background .25s,color .25s}
+#app{display:flex;flex-direction:column;height:100dvh}
+.view{display:none;flex:1;overflow-y:auto;overflow-x:hidden;padding:20px 16px calc(var(--tab)+16px)}
+.view.active{display:block}
+.view::-webkit-scrollbar{width:2px}
+.view::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+
+/* ── TAB BAR ─────────────────────────────────────────────────────── */
+.tabbar{position:fixed;bottom:0;left:0;right:0;height:var(--tab);background:var(--bg1);
+  border-top:.5px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);
+  padding-bottom:env(safe-area-inset-bottom);z-index:100}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  border:none;background:transparent;cursor:pointer;color:var(--t2);transition:color .2s;
+  font-family:var(--fu);font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase}
+.tab.active{color:var(--am)}
+.tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── SHARED ──────────────────────────────────────────────────────── */
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+.logo{font-family:var(--fd);font-size:28px;color:var(--t0);letter-spacing:-.02em;line-height:1}
+.logo span{color:var(--am)}
+.logo-sub{font-size:10px;color:var(--t2);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.slabel{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--t2);margin-bottom:10px;padding-bottom:6px;border-bottom:.5px solid var(--bd)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:13px 16px;border-radius:var(--r);font-family:var(--fu);font-size:12px;
+  font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  border:.5px solid var(--bd2);background:var(--sf);color:var(--t0);cursor:pointer;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-p{background:var(--am);border-color:var(--am);color:#0a1a10}
+.btn-p:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.btn-sm{padding:7px 12px;font-size:11px}
+.btn-w{width:100%}
+input[type="file"]{display:none}
+
+/* ── CAPTURE ─────────────────────────────────────────────────────── */
+.mbadge{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);
+  border:.5px solid var(--bd2);border-radius:20px;padding:5px 12px;
+  font-size:11px;font-family:var(--fm);color:var(--am);margin-bottom:14px}
+.mdot{width:7px;height:7px;border-radius:50%;background:var(--gr);flex-shrink:0}
+.mdot.warn{background:var(--am)}
+.mdot.fail{background:var(--re)}
+.hero{background:var(--bg2);border:1.5px dashed var(--bd2);border-radius:var(--r2);
+  aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;cursor:pointer;overflow:hidden;position:relative;margin-bottom:14px;transition:border-color .2s}
+.hero:hover{border-color:var(--am)}
+.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:var(--r2)}
+.hero-ph{display:flex;flex-direction:column;align-items:center;gap:8px;z-index:1;pointer-events:none}
+.hero-ph svg{width:46px;height:46px;stroke:var(--t2);fill:none;stroke-width:1.2;opacity:.45}
+.hero-ph p{font-size:12px;color:var(--t2);text-align:center}
+.cap-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+
+/* ── PIPELINE TRACE ──────────────────────────────────────────────── */
+/* Exact stage_outcome_tag values from inference_db.py:
+   passed | completed | rejected | error | not_run */
+.pipeline{margin-bottom:16px;position:relative}
+.pipeline::before{content:'';position:absolute;left:24px;top:18px;bottom:18px;
+  width:1px;background:var(--bd2);z-index:0}
+.pipe-row{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;
+  background:var(--bg2);border:.5px solid var(--bd);border-radius:var(--r);
+  margin-bottom:5px;position:relative;z-index:1}
+.pipe-ic{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;font-size:13px;font-weight:700;border:1.5px solid}
+/* outcome → colour */
+.pipe-ic.passed,.pipe-ic.completed{background:var(--gbg);border-color:var(--gr);color:var(--gr)}
+.pipe-ic.rejected,.pipe-ic.error  {background:var(--rbg);border-color:var(--re);color:var(--re)}
+.pipe-ic.not_run                   {background:var(--bg3);border-color:var(--bd2);color:var(--t2)}
+.pipe-body{flex:1;min-width:0}
+.pipe-name{font-size:12px;font-weight:600;color:var(--t0);letter-spacing:.02em}
+.pipe-detail{font-size:11px;color:var(--t2);margin-top:2px;font-family:var(--fm);line-height:1.5}
+.pipe-badge{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  padding:2px 8px;border-radius:20px;margin-top:2px;white-space:nowrap;flex-shrink:0}
+.pipe-badge.passed,.pipe-badge.completed{background:var(--gbg);color:var(--gr)}
+.pipe-badge.rejected,.pipe-badge.error  {background:var(--rbg);color:var(--re)}
+.pipe-badge.not_run                      {background:var(--bg3);color:var(--t2)}
+
+/* ── RESULT CARD ─────────────────────────────────────────────────── */
+.res-card{background:var(--bg1);border:.5px solid var(--bd);border-radius:var(--r2);
+  padding:26px 20px 22px;margin-bottom:14px;text-align:center}
+.res-label{font-family:var(--fd);font-size:54px;line-height:1;margin-bottom:4px}
+.res-label.Ripe     {color:var(--gr)}
+.res-label.Overripe {color:var(--am)}
+.res-label.Underripe{color:var(--re)}
+.res-sub{font-size:11px;color:var(--t2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:22px}
+.gauge-wrap{position:relative;width:160px;height:90px;margin:0 auto 18px}
+.gauge-wrap canvas{position:absolute;top:0;left:0}
+.gauge-pct{position:absolute;bottom:0;left:0;right:0;text-align:center;
+  font-size:30px;font-weight:700;font-family:var(--fm)}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mc{background:var(--bg2);border-radius:var(--r);padding:10px 12px}
+.mc .ml{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.mc .mv{font-size:13px;font-family:var(--fm);color:var(--t0);font-weight:500;word-break:break-all}
+.mc .mv.xs{font-size:10px}
+.thumb-wrap{border-radius:var(--r2);overflow:hidden;margin-bottom:14px;max-height:180px}
+.thumb-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* quality strip — metrics from pipeline_stages quality_gate row */
+.qstrip-wrap{margin-bottom:14px}
+.qstrip{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.qchip{background:var(--bg3);border:.5px solid var(--bd2);border-radius:6px;
+  padding:4px 9px;font-size:10px;font-family:var(--fm);color:var(--t1)}
+.qchip .ql{color:var(--t2);margin-right:4px}
+/* gate-rejected card */
+.rej-card{background:var(--rbg);border:.5px solid var(--re);border-radius:var(--r2);
+  padding:20px;margin-bottom:14px}
+.rej-code{font-family:var(--fm);font-size:10px;color:var(--re);margin-bottom:6px;letter-spacing:.06em;text-transform:uppercase}
+.rej-msg {font-size:14px;font-weight:600;color:var(--t0);margin-bottom:6px}
+.rej-hint{font-size:12px;color:var(--t1)}
+
+/* ── ANALYTICS ───────────────────────────────────────────────────── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}
+.sc{background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);padding:14px}
+.sc .sl{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.sc .sv{font-size:26px;font-weight:700;font-family:var(--fm);color:var(--t0)}
+.sc .ss{font-size:11px;color:var(--t2);margin-top:1px}
+.chart-block{background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r2);padding:16px;margin-bottom:14px}
+.chart-block h3{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t2);margin-bottom:14px}
+.src-tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.stab{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.04em;
+  border:.5px solid var(--bd2);background:transparent;color:var(--t1);cursor:pointer;
+  font-family:var(--fu);transition:all .15s}
+.stab.active{background:var(--am);color:#0a1a10;border-color:var(--am)}
+/* history table */
+.htable{width:100%;border-collapse:collapse;font-size:12px}
+.htable th{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;
+  text-align:left;padding:8px 6px;border-bottom:.5px solid var(--bd);font-weight:600}
+.htable td{padding:9px 6px;border-bottom:.5px solid var(--bd);color:var(--t1);vertical-align:middle}
+.htable tr:last-child td{border-bottom:none}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.03em}
+.pill-R  {background:var(--gbg);color:var(--gr)}
+.pill-O  {background:var(--abg);color:var(--am)}
+.pill-U  {background:var(--rbg);color:var(--re)}
+.pill-rej{background:var(--bg3);color:var(--t2);border:.5px solid var(--bd2)}
+.src-tag{font-size:9px;padding:1px 5px;border-radius:4px;font-family:var(--fm);font-weight:600;
+  background:var(--bg3);color:var(--t2);letter-spacing:.04em;text-transform:uppercase}
+.src-tag.cli{background:var(--bbg);color:var(--bl)}
+/* mini pipeline dots — binary_gate · quality_gate · ripeness */
+.pdots{display:flex;gap:3px;align-items:center}
+.pd{width:7px;height:7px;border-radius:50%}
+.pd.passed,.pd.completed{background:var(--gr)}
+.pd.rejected,.pd.error  {background:var(--re)}
+.pd.not_run             {background:var(--bg3);border:.5px solid var(--bd2)}
+
+/* ── SETTINGS ────────────────────────────────────────────────────── */
+.ss-sec{margin-bottom:22px}
+.ss-sec h2{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--t2);margin-bottom:10px;padding-bottom:6px;border-bottom:.5px solid var(--bd)}
+.ss-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;
+  background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);margin-bottom:6px}
+.rl{display:flex;flex-direction:column}
+.rn{font-size:13px;color:var(--t0)}
+.rd{font-size:11px;color:var(--t2);margin-top:1px}
+.sinp{background:var(--bg2);border:.5px solid var(--bd2);border-radius:6px;
+  color:var(--t0);font-family:var(--fm);font-size:12px;padding:6px 10px;width:190px}
+.ssel{background:var(--bg2);border:.5px solid var(--bd2);border-radius:6px;
+  color:var(--t0);font-family:var(--fm);font-size:11px;padding:5px 8px;cursor:pointer}
+.trow{display:flex;gap:4px}
+.tb{padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;border:.5px solid var(--bd2);
+  background:transparent;color:var(--t1);cursor:pointer;font-family:var(--fu);transition:all .15s}
+.tb.active{background:var(--am);color:#0a1a10;border-color:var(--am)}
+.cdot{width:8px;height:8px;border-radius:50%;background:var(--t2);transition:background .3s;flex-shrink:0}
+.cdot.on{background:var(--gr)}
+.cdot.off{background:var(--re)}
+/* gate thresholds grid — populated from /health input_gate */
+.gate-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.gate-chip{background:var(--bg2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px}
+.gate-chip .gk{font-size:10px;color:var(--t2);margin-bottom:2px;font-family:var(--fm)}
+.gate-chip .gv{font-size:12px;font-family:var(--fm);color:var(--t0)}
+/* accuracy bars */
+.acc-rows{display:flex;flex-direction:column;gap:8px}
+.ar{display:flex;align-items:center;gap:10px}
+.al{font-size:10px;color:var(--t2);width:96px;flex-shrink:0;font-family:var(--fm)}
+.atr{flex:1;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.af{height:100%;border-radius:3px;transition:width .6s}
+.av{font-size:11px;font-family:var(--fm);color:var(--t1);width:40px;text-align:right;flex-shrink:0}
+.gb{font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:3px;letter-spacing:.04em}
+.gb.pass{background:var(--gbg);color:var(--gr)}
+.gb.fail{background:var(--rbg);color:var(--re)}
+.gb.tbd{background:var(--bg3);color:var(--t2)}
+/* preprocess family chip */
+.pfchip{font-size:10px;font-family:var(--fm);color:var(--am);background:var(--abg);
+  border:.5px solid var(--am);border-radius:4px;padding:1px 5px;margin-left:4px}
+
+/* ── SPINNER / TOAST / EMPTY ─────────────────────────────────────── */
+.spin-ov{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.75);
+  align-items:center;justify-content:center;flex-direction:column;gap:16px}
+.spin-ov.show{display:flex}
+.spin{width:44px;height:44px;border:3px solid var(--bg3);border-top-color:var(--am);
+  border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.spin-t{font-size:12px;color:var(--t1);letter-spacing:.08em;text-transform:uppercase}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-80px);
+  background:var(--bg3);border:.5px solid var(--bd2);border-radius:var(--r);
+  padding:10px 20px;font-size:13px;color:var(--t0);z-index:300;transition:transform .3s;
+  white-space:nowrap;box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.empty{text-align:center;padding:36px 20px;color:var(--t2)}
+.empty .ei{font-size:30px;margin-bottom:10px;opacity:.4}
+.empty p{font-size:13px}
+@keyframes fu{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.fup{animation:fu .35s ease both}
+</style>
+</head>
+<body data-theme="dark">
+<div class="spin-ov" id="spinner"><div class="spin"></div><span class="spin-t" id="spin-t">Analysing…</span></div>
+<div class="toast" id="toast"></div>
+<div id="app">
+
+<!-- ══════════════════════════════════════════════════════════
+     CAPTURE
+══════════════════════════════════════════════════════════ -->
+<div class="view active" id="view-capture">
+  <div class="hdr">
+    <div><div class="logo">Palm<span>Scan</span></div><div class="logo-sub">Ripeness Classifier</div></div>
+  </div>
+
+  <div class="mbadge">
+    <span class="mdot" id="cap-dot"></span>
+    <span id="cap-name">MobileNetV2 · INT8</span>
+    <span class="pfchip" id="cap-pf">mobilenet_v2</span>
+  </div>
+
+  <!-- ── EMPTY STATE: no image picked yet ── -->
+  <div id="empty-state">
+    <!-- Large tap-to-capture zone -->
+    <div class="hero" id="hero" onclick="document.getElementById('fc').click()">
+      <div class="hero-ph" id="hero-ph">
+        <svg viewBox="0 0 48 48"><rect x="4" y="10" width="40" height="30" rx="4"/><circle cx="24" cy="25" r="9"/><path d="M32 10l-2-5H18l-2 5"/><circle cx="36" cy="16" r="2" fill="currentColor"/></svg>
+        <p>Tap to open camera<br>or pick from gallery</p>
+      </div>
+    </div>
+    <!-- Camera / Gallery split -->
+    <div class="cap-grid">
+      <button class="btn" onclick="document.getElementById('fc').click()">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2"><rect x="2" y="7" width="20" height="15" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M16 7l-1.5-3h-5L8 7"/></svg>Camera
+      </button>
+      <button class="btn" onclick="document.getElementById('fg').click()">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Gallery
+      </button>
+    </div>
+  </div>
+
+  <!-- ── PREVIEW STATE: image picked, shown before/during auto-classify ── -->
+  <div id="preview-state" style="display:none">
+    <!-- Image fills the same hero area -->
+    <div style="position:relative;border-radius:var(--r2);overflow:hidden;aspect-ratio:4/3;margin-bottom:14px;background:var(--bg2)">
+      <img id="preview" alt="Preview" style="width:100%;height:100%;object-fit:cover;display:block">
+      <!-- Subtle "classifying…" overlay while request is in flight -->
+      <div id="preview-overlay" style="display:none;position:absolute;inset:0;background:rgba(10,26,16,.55);align-items:center;justify-content:center;flex-direction:column;gap:10px">
+        <div class="spin" style="width:36px;height:36px;border-width:2.5px"></div>
+        <span style="font-size:12px;color:var(--t0);letter-spacing:.08em;text-transform:uppercase">Classifying…</span>
+      </div>
+    </div>
+
+    <!-- Primary action: classify -->
+    <button class="btn btn-p btn-w" id="classify-btn" onclick="doClassify()" style="margin-bottom:10px">
+      <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      Classify Fruit
+    </button>
+
+    <!-- Secondary: pick a different image -->
+    <div class="cap-grid">
+      <button class="btn" onclick="resetCapture();document.getElementById('fc').click()">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2"><rect x="2" y="7" width="20" height="15" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M16 7l-1.5-3h-5L8 7"/></svg>Retake
+      </button>
+      <button class="btn" onclick="resetCapture();document.getElementById('fg').click()">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Choose other
+      </button>
+    </div>
+  </div>
+
+  <input type="file" id="fc" accept="image/*" capture="environment" onchange="handleFile(this)">
+  <input type="file" id="fg" accept="image/*" onchange="handleFile(this)">
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     RESULT
+══════════════════════════════════════════════════════════ -->
+<div class="view" id="view-result">
+  <div class="hdr">
+    <div><div class="logo">Palm<span>Scan</span></div><div class="logo-sub">Result</div></div>
+    <button class="btn btn-sm" onclick="switchView('capture')">+ New</button>
+  </div>
+  <div class="thumb-wrap" id="res-thumb" style="display:none"><img id="res-thumb-img" alt=""></div>
+
+  <!-- Pipeline trace — 3 rows matching pipeline_stages stage_tag order -->
+  <div class="slabel">Pipeline trace</div>
+  <div class="pipeline" id="pipeline-trace"></div>
+
+  <!-- Quality gate metrics strip — from pipeline_stages quality_gate row fields -->
+  <div class="qstrip-wrap" id="qstrip-wrap" style="display:none">
+    <div class="slabel">Image quality metrics</div>
+    <div class="qstrip" id="qstrip"></div>
+  </div>
+
+  <!-- Gate-rejected / runtime-error / input-error -->
+  <div class="rej-card" id="rej-card" style="display:none">
+    <div class="rej-code" id="rej-code"></div>
+    <div class="rej-msg"  id="rej-msg"></div>
+    <div class="rej-hint" id="rej-hint"></div>
+  </div>
+
+  <!-- Accepted — classification result -->
+  <div id="res-block" style="display:none">
+    <div class="res-card fup">
+      <div class="res-label" id="res-label">—</div>
+      <div class="res-sub"   id="res-sub">Awaiting classification</div>
+      <div class="gauge-wrap">
+        <canvas id="gauge-cv" width="160" height="90" role="img" aria-label="Confidence gauge"></canvas>
+        <div class="gauge-pct" id="gauge-pct">—</div>
+      </div>
+      <div class="meta-grid">
+        <!-- inference_latency_ms — model-only timing from inference_requests -->
+        <div class="mc"><div class="ml">Inference (model)</div><div class="mv" id="rm-inf">—</div></div>
+        <!-- api_latency_ms — full round-trip from inference_requests -->
+        <div class="mc"><div class="ml">API total</div>        <div class="mv" id="rm-api">—</div></div>
+        <!-- model_path via model_registry (shown as filename) -->
+        <div class="mc" style="grid-column:span 2">
+          <div class="ml">Model · Preprocess family</div>
+          <div class="mv xs" id="rm-mdl">—</div>
+        </div>
+        <!-- image_name + dimensions from inference_requests -->
+        <div class="mc"><div class="ml">Image</div>       <div class="mv xs" id="rm-img">—</div></div>
+        <!-- timed_runs from inference_requests -->
+        <div class="mc"><div class="ml">Timed runs</div>  <div class="mv"    id="rm-runs">—</div></div>
+        <!-- source_tag: api | cli -->
+        <div class="mc"><div class="ml">Source</div>      <div class="mv"    id="rm-src">—</div></div>
+        <!-- http_status_code -->
+        <div class="mc"><div class="ml">HTTP</div>        <div class="mv"    id="rm-http">—</div></div>
+        <!-- request_uid from inference_requests -->
+        <div class="mc" style="grid-column:span 2"><div class="ml">Request UID</div><div class="mv xs" id="rm-uid">—</div></div>
+      </div>
+    </div>
+  </div>
+  <button class="btn btn-p btn-w" style="margin-top:4px" onclick="switchView('capture')">Classify Another</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     ANALYTICS
+══════════════════════════════════════════════════════════ -->
+<div class="view" id="view-history">
+  <div class="hdr">
+    <div><div class="logo">Palm<span>Scan</span></div><div class="logo-sub">Analytics</div></div>
+    <button class="btn btn-sm" onclick="loadHistory()">↻ Refresh</button>
+  </div>
+
+  <!-- Live stat cards — from /stats -->
+  <div class="stat-grid">
+    <div class="sc"><div class="sl">Total Runs</div>    <div class="sv" id="st-tot">—</div><div class="ss">all time</div></div>
+    <div class="sc"><div class="sl">Accepted</div>      <div class="sv" id="st-acc">—</div><div class="ss">all gates passed</div></div>
+    <!-- inference_latency_ms avg (model only, not api_latency_ms) -->
+    <div class="sc"><div class="sl">Avg Inference</div> <div class="sv" id="st-lat">—</div><div class="ss">model ms · not API</div></div>
+    <div class="sc"><div class="sl">Gate Reject %</div> <div class="sv" id="st-rej">—</div><div class="ss">non-palm + quality</div></div>
+  </div>
+
+  <!-- Class distribution — predicted_label from pipeline_stages -->
+  <div class="chart-block">
+    <h3>Ripeness distribution · predicted_label from pipeline_stages</h3>
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+      <div style="position:relative;width:110px;height:110px;flex-shrink:0">
+        <canvas id="dist-cv" width="110" height="110" role="img" aria-label="Class distribution donut"></canvas>
+      </div>
+      <div id="dist-leg" style="font-size:12px;display:flex;flex-direction:column;gap:8px;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- Rejection breakdown — error_code_tag from inference_requests -->
+  <div class="chart-block">
+    <h3>Gate rejections · error_code_tag from inference_requests</h3>
+    <div style="position:relative;height:160px">
+      <canvas id="rej-cv" role="img" aria-label="Rejection reasons bar chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Inference latency — inference_latency_ms from inference_requests -->
+  <div class="chart-block">
+    <h3>Inference latency · last 30 · inference_latency_ms</h3>
+    <div style="position:relative;height:130px">
+      <canvas id="lat-cv" role="img" aria-label="Inference latency over time"></canvas>
+    </div>
+  </div>
+
+  <!-- Log filter: 'all' | model_path LIKE pattern | source_tag -->
+  <div class="slabel" style="margin-top:4px">Inference log</div>
+  <div class="src-tabs" id="src-tabs">
+    <button class="stab active" onclick="filterLog(this,'all')">All</button>
+    <button class="stab" onclick="filterLog(this,'int8')">INT8</button>
+    <button class="stab" onclick="filterLog(this,'float16')">FP16</button>
+    <button class="stab" onclick="filterLog(this,'api')">API</button>
+    <button class="stab" onclick="filterLog(this,'cli')">CLI</button>
+  </div>
+  <table class="htable">
+    <thead><tr>
+      <!-- predicted_label · top1_probability · pipeline dots · inference_latency_ms · model_path (basename) · source_tag · created_at_utc -->
+      <th>Label</th><th>Conf.</th><th>Pipeline</th><th>Inf ms</th><th>Model</th><th>Src</th><th>Time (UTC)</th>
+    </tr></thead>
+    <tbody id="hist-body">
+      <tr><td colspan="7"><div class="empty"><div class="ei">📋</div><p>Connect to Pi and tap Refresh.</p></div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SETTINGS
+══════════════════════════════════════════════════════════ -->
+<div class="view" id="view-settings">
+  <div class="hdr">
+    <div><div class="logo">Palm<span>Scan</span></div><div class="logo-sub">Settings</div></div>
+  </div>
+
+  <div class="ss-sec">
+    <h2>Connection</h2>
+    <div class="ss-row">
+      <div class="rl"><span class="rn">API Host</span><span class="rd">Raspberry Pi address</span></div>
+      <input class="sinp" id="host-inp" placeholder="http://192.168.x.x:5000" oninput="saveHost(this.value)">
+    </div>
+    <div class="ss-row">
+      <div class="rl"><span class="rn">Status</span><span class="rd" id="conn-d">Not tested</span></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-family:var(--fm)">
+          <span class="cdot" id="cdot"></span><span id="ctext">Unknown</span>
+        </div>
+        <button class="btn btn-sm" onclick="testConn()">Test</button>
+      </div>
+    </div>
+    <!-- Gate thresholds — populated from /health → input_gate (get_input_gate_config()) -->
+    <div id="gate-thresholds" style="display:none">
+      <div class="slabel" style="margin-top:12px">Active gate thresholds · from Pi /health</div>
+      <div class="gate-grid" id="gate-grid"></div>
+    </div>
+  </div>
+
+  <div class="ss-sec">
+    <h2>Active Model</h2>
+    <div class="ss-row">
+      <div class="rl">
+        <span class="rn">Model variant</span>
+        <!-- preprocess_family is sent as form field to /classify so server applies correct preprocessing -->
+        <span class="rd" id="mdl-sub">—</span>
+      </div>
+      <select class="ssel" id="mdl-sel" onchange="selectModel(this.value)">
+        <!--
+          MODEL_PREPROCESS_FAMILY values (from pi_inference.py SUPPORTED_PREPROCESS_FAMILIES):
+            mobilenet_v2  : (x/127.5)-1.0
+            mobilenet_v3  : raw float32 (in-model preprocessing)
+            efficientnet  : (x/127.5)-1.0  (same formula as v2)
+            imagenet_timm : ImageNet mean/std (ShuffleNetV2 via timm)
+            imagenet_torchvision: ImageNet mean/std (ResNet18 via torchvision)
+        -->
+        <option value="v2_int8">MobileNetV2 · INT8</option>
+        <option value="v3_fp16">MobileNetV3 · FP16</option>
+        <option value="v3_int8">MobileNetV3 · INT8 ⚠</option>
+        <option value="eff_fp16">EfficientNetB0 · FP16</option>
+        <option value="eff_int8">EfficientNetB0 · INT8 ⚠</option>
+        <option value="shuf_fp16">ShuffleNetV2 · FP16</option>
+        <option value="res18_fp16">ResNet18 · FP16</option>
+      </select>
+    </div>
+    <div class="chart-block" style="margin-top:8px">
+      <h3>Accuracy by model variant (test set, 180 images)</h3>
+      <div class="acc-rows">
+        <div class="ar"><span class="al">V2 INT8<span class="gb pass">PASS</span></span>  <div class="atr"><div class="af" style="width:92.22%;background:var(--gr)"></div></div><span class="av">92.2%</span></div>
+        <div class="ar"><span class="al">V3 FP16<span class="gb pass">PASS</span></span>  <div class="atr"><div class="af" style="width:88.89%;background:var(--gr)"></div></div><span class="av">88.9%</span></div>
+        <div class="ar"><span class="al">V3 INT8<span class="gb fail">FAIL</span></span>  <div class="atr"><div class="af" style="width:84.44%;background:var(--am)"></div></div><span class="av">84.4%</span></div>
+        <div class="ar"><span class="al">Eff FP16<span class="gb pass">PASS</span></span> <div class="atr"><div class="af" style="width:86.67%;background:var(--gr)"></div></div><span class="av">86.7%</span></div>
+        <div class="ar"><span class="al">Eff INT8<span class="gb fail">FAIL</span></span> <div class="atr"><div class="af" style="width:81.11%;background:var(--am)"></div></div><span class="av">81.1%</span></div>
+        <div class="ar"><span class="al">Shuffle<span class="gb tbd">TBD</span></span>   <div class="atr"><div class="af" style="width:20%;background:var(--t2)"></div></div><span class="av" style="color:var(--t2)">—</span></div>
+        <div class="ar"><span class="al">ResNet18<span class="gb tbd">TBD</span></span>  <div class="atr"><div class="af" style="width:20%;background:var(--t2)"></div></div><span class="av" style="color:var(--t2)">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ss-sec">
+    <h2>Display Mode</h2>
+    <div class="ss-row">
+      <div class="rl"><span class="rn">Theme</span><span class="rd">HC = high-contrast for direct sunlight</span></div>
+      <div class="trow">
+        <button class="tb active" id="th-dark"  onclick="setTheme('dark')">Dark</button>
+        <button class="tb"        id="th-light" onclick="setTheme('light')">Light</button>
+        <button class="tb"        id="th-hc"    onclick="setTheme('hc')">HC</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ss-sec">
+    <h2>Install App</h2>
+    <div class="ss-row">
+      <div class="rl"><span class="rn">Add to home screen</span><span class="rd">Standalone · no browser chrome</span></div>
+      <button class="btn btn-sm" id="install-btn" style="display:none" onclick="installPWA()">Install</button>
+    </div>
+    <div class="ss-row">
+      <span class="rn">Version</span>
+      <span style="font-size:11px;font-family:var(--fm);color:var(--t2)">PalmScan v1.0.0</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     TAB BAR
+══════════════════════════════════════════════════════════ -->
+<nav class="tabbar">
+  <button class="tab active" id="tab-capture"  onclick="switchView('capture')">
+    <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="15" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M16 7l-1.5-3h-5L8 7"/></svg>Capture
+  </button>
+  <button class="tab" id="tab-result"   onclick="switchView('result')">
+    <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Result
+  </button>
+  <button class="tab" id="tab-history"  onclick="switchView('history');loadHistory()">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>Analytics
+  </button>
+  <button class="tab" id="tab-settings" onclick="switchView('settings')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings
+  </button>
+</nav>
+</div><!-- #app -->
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   CONSTANTS — exact values verified against pi_inference.py and
+   inference_db.py enums
+══════════════════════════════════════════════════════════════════ */
+
+// pipeline_stages.stage_tag (STAGE_TAGS in inference_db.py)
+const STAGE_TAGS = ['binary_gate', 'quality_gate', 'ripeness_classification'];
+
+// pipeline_stages.stage_outcome_tag (STAGE_OUTCOME_TAGS in inference_db.py)
+const STAGE_OUTCOME = {
+  passed:    {icon:'✓', label:'Passed',    cls:'passed'},
+  completed: {icon:'✓', label:'Completed', cls:'completed'},
+  rejected:  {icon:'✕', label:'Rejected',  cls:'rejected'},
+  error:     {icon:'!', label:'Error',     cls:'error'},
+  not_run:   {icon:'—', label:'Not run',   cls:'not_run'},
+};
+
+// Human-readable stage names
+const STAGE_NAMES = {
+  binary_gate:             'Palm / Non-palm gate',
+  quality_gate:            'Image quality gate',
+  ripeness_classification: 'Ripeness classification',
+};
+
+// error_code_tag enum (ERROR_CODE_TAGS in inference_db.py)
+// Note: InputValidationError.to_dict() returns key "error_code" (not "code")
+const ERR_LABELS = {
+  not_palm_fruit:      'Not a palm fruit',
+  low_resolution:      'Low resolution',
+  bad_aspect_ratio:    'Bad aspect ratio',
+  bad_exposure:        'Bad exposure',
+  low_contrast:        'Low contrast',
+  blurry_image:        'Blurry image',
+  runtime_unavailable: 'Runtime unavailable',
+  unexpected_error:    'Unexpected error',
+};
+
+// QUALITY_ERROR_CODE_TAGS (maps to quality_gate rejection in build_stage_rows)
+const QUALITY_CODES = new Set(['low_resolution','bad_aspect_ratio','bad_exposure','low_contrast','blurry_image']);
+
+// request_outcome_tag (REQUEST_OUTCOME_TAGS in inference_db.py)
+const REQ_OUTCOMES = {
+  accepted:      'Accepted',
+  gate_rejected: 'Gate rejected',
+  runtime_error: 'Runtime error',
+  input_error:   'Input error',
+};
+
+// ── MODEL TABLE ───────────────────────────────────────────────────
+// preprocess_family must match MODEL_PREPROCESS_FAMILY env var values in pi_inference.py
+// SUPPORTED_PREPROCESS_FAMILIES = {mobilenet_v2, mobilenet_v3, efficientnet, imagenet_timm, imagenet_torchvision, none}
+// This is sent as form field "preprocess_family" in POST /classify so the server
+// can override its module-level MODEL_PREPROCESS_FAMILY per-request.
+const MODELS = {
+  v2_int8:   {label:'MobileNetV2 · INT8',     pf:'mobilenet_v2',         acc:'92.2%', size:'2.76 MB', path:'palm_ripeness_best_20260407_014729_int8.tflite',           gate:'PASS', dot:''},
+  v3_fp16:   {label:'MobileNetV3 · FP16',     pf:'mobilenet_v3',         acc:'88.9%', size:'2.01 MB', path:'palm_ripeness_best_20260421_022121_float16.tflite',        gate:'PASS', dot:''},
+  v3_int8:   {label:'MobileNetV3 · INT8 ⚠',  pf:'mobilenet_v3',         acc:'84.4%', size:'1.32 MB', path:'palm_ripeness_best_20260421_022121_int8.tflite',           gate:'FAIL', dot:'warn'},
+  eff_fp16:  {label:'EfficientNetB0 · FP16',  pf:'efficientnet',         acc:'86.7%', size:'~3 MB',   path:'palm_ripeness_best_20260423_214317_float16.tflite',        gate:'PASS', dot:''},
+  eff_int8:  {label:'EfficientNetB0 · INT8 ⚠',pf:'efficientnet',         acc:'81.1%', size:'~1.6 MB', path:'palm_ripeness_best_20260423_214317_int8.tflite',           gate:'FAIL', dot:'fail'},
+  shuf_fp16: {label:'ShuffleNetV2 · FP16',    pf:'imagenet_timm',        acc:'TBD',   size:'TBD',     path:'palm_ripeness_shufflenetv2_float16.tflite',                gate:'TBD',  dot:'warn'},
+  res18_fp16:{label:'ResNet18 · FP16',         pf:'imagenet_torchvision', acc:'TBD',   size:'TBD',     path:'palm_ripeness_resnet18_float16.tflite',                    gate:'TBD',  dot:'warn'},
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════════════════ */
+const S = {
+  host:        localStorage.getItem('host')  || 'http://192.168.1.100:5000',
+  model:       localStorage.getItem('model') || 'v2_int8',
+  theme:       localStorage.getItem('theme') || 'dark',
+  file:        null,
+  history:     [],     // rows from /history — shaped like v_request_pipeline_trace
+  logFilter:   'all',
+  deferInst:   null,
+  dist:        {Ripe:0, Overripe:0, Underripe:0},
+  gateConfig:  null,   // from /health
+  _autoClassifyTimer: null,   // debounce timer for auto-classify
+};
+
+let gaugeChart=null, distChart=null, rejChart=null, latChart=null;
+
+/* ══════════════════════════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════════════════════════ */
+(function init(){
+  applyTheme(S.theme);
+  document.getElementById('host-inp').value = S.host;
+  document.getElementById('mdl-sel').value  = S.model;
+  updateBadge(); updateMdlSub();
+  buildDistChart([1,1,1]);
+  buildRejChart({});
+  buildLatChart([]);
+  window.addEventListener('beforeinstallprompt', e=>{
+    e.preventDefault(); S.deferInst=e;
+    document.getElementById('install-btn').style.display='block';
+  });
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+   NAV
+══════════════════════════════════════════════════════════════════ */
+function switchView(n){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('view-'+n).classList.add('active');
+  document.getElementById('tab-'+n).classList.add('active');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   FILE
+══════════════════════════════════════════════════════════════════ */
+function _hideOverlay(){
+  const ov = document.getElementById('preview-overlay');
+  if(ov) ov.style.display = 'none';
+  const cb = document.getElementById('classify-btn');
+  if(cb){ cb.disabled = false; cb.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Classify Fruit'; }
+}
+
+function handleFile(inp){
+  if(!inp.files||!inp.files[0]) return;
+  S.file = inp.files[0];
+
+  /* Show preview image */
+  document.getElementById('preview').src = URL.createObjectURL(S.file);
+
+  /* Switch from empty-state to preview-state */
+  document.getElementById('empty-state').style.display   = 'none';
+  document.getElementById('preview-state').style.display = 'block';
+
+  /* Auto-classify after a 600ms preview flash so user sees what was picked */
+  clearTimeout(S._autoClassifyTimer);
+  S._autoClassifyTimer = setTimeout(() => doClassify(), 600);
+}
+
+function resetCapture(){
+  /* Return to empty state when user wants a different image */
+  clearTimeout(S._autoClassifyTimer);
+  S.file = null;
+  document.getElementById('preview-state').style.display = 'none';
+  document.getElementById('empty-state').style.display   = 'block';
+  document.getElementById('fc').value = '';
+  document.getElementById('fg').value = '';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CLASSIFY  →  POST /classify
+   
+   Sends to app.py which calls pi_inference.py predict_bytes().
+   FormData fields:
+     file             – image file (required by app.py)
+     model_path       – passed to /classify; app.py uses env MODEL_PATH by default
+                        (app.py currently ignores form model_path — see api_additions.py
+                         for the patch that reads request.form.get('model_path'))
+     preprocess_family– MODEL_PREPROCESS_FAMILY override per-request (see FIX #1 below)
+══════════════════════════════════════════════════════════════════ */
+async function doClassify(){
+  if(!S.file) return;
+  /* Show inline overlay on the preview image (not full-screen spinner)
+     so the user can see what image is being sent while it processes */
+  const overlay = document.getElementById('preview-overlay');
+  if(overlay) overlay.style.display = 'flex';
+  /* Also disable the classify button to prevent double-submit */
+  const classifyBtn = document.getElementById('classify-btn');
+  if(classifyBtn){ classifyBtn.disabled = true; classifyBtn.textContent = 'Classifying…'; }
+  const m  = MODELS[S.model];
+  const fd = new FormData();
+  fd.append('file', S.file);
+  // FIX #1: send preprocess_family so server applies correct preprocessing for
+  // this architecture, even if env MODEL_PREPROCESS_FAMILY differs.
+  fd.append('preprocess_family', m?.pf || 'mobilenet_v2');
+  // model_path hint — app.py patch reads this to load the right weights
+  fd.append('model_path', m?.path || '');
+
+  try{
+    const t0=performance.now();
+    const res=await fetch(`${S.host}/classify`,{method:'POST',body:fd});
+    const wall=Math.round(performance.now()-t0);
+    const data=await res.json();
+    _hideOverlay();
+    if(res.ok){
+      _renderAccepted(data, wall);
+    } else {
+      _renderRejected(data, res.status, wall);
+    }
+  } catch(e){
+    _hideOverlay();
+    if(/fetch|Failed|NetworkError|Load failed/i.test(e.message)){
+      _demoMode();
+      showToast('Demo mode — Pi not reachable');
+    } else {
+      showToast('Error: '+e.message);
+    }
+  }
+}
+
+/* ── reconstruct 3 pipeline_stages rows from /classify response ───
+   Mirrors build_stage_rows() logic exactly:
+     accepted       → binary=passed|not_run, quality=passed, ripeness=completed
+     gate_rejected  → depends on error_code_tag (not_palm_fruit → binary rejected,
+                       quality codes → quality rejected)
+     runtime_error  → binary=error
+     input_error    → binary=error
+*/
+function _buildStagesFromResponse(data, httpStatus){
+  // error_code_tag from InputValidationError.to_dict() is under key "error_code"
+  const code        = data.error_code || data.error || '';
+  const isPalmFail  = code === 'not_palm_fruit';
+  const isQualFail  = QUALITY_CODES.has(code);
+  const isAccepted  = httpStatus === 200;
+  const isRuntime   = httpStatus === 503;
+
+  // From build_stage_rows() for accepted path
+  if(isAccepted){
+    const prob = data.probability || 0;
+    const lbl  = data.label || '—';
+    const inf  = data.latency_ms;
+    return [
+      {stage_tag:'binary_gate',            stage_order:1, stage_outcome_tag:'passed',
+       detail:'Palm fruit detected'},
+      {stage_tag:'quality_gate',           stage_order:2, stage_outcome_tag:'passed',
+       detail:'Quality OK'},
+      {stage_tag:'ripeness_classification',stage_order:3, stage_outcome_tag:'completed',
+       detail:`${lbl} · ${(prob*100).toFixed(1)}%`,
+       predicted_label:lbl, top1_probability:prob, stage_latency_ms:inf},
+    ];
+  }
+
+  if(isPalmFail){
+    // binary_gate=rejected, quality=not_run, ripeness=not_run
+    return [
+      {stage_tag:'binary_gate',            stage_order:1, stage_outcome_tag:'rejected',
+       detail:data.error||ERR_LABELS[code]||code,
+       stage_error_code_tag:code, stage_hint_message:data.hint,
+       // details may include palm_score from InputValidationError.details
+       palm_score: data.details?.palm_score},
+      {stage_tag:'quality_gate',           stage_order:2, stage_outcome_tag:'not_run',
+       detail:'Not reached — palm gate rejected'},
+      {stage_tag:'ripeness_classification',stage_order:3, stage_outcome_tag:'not_run',
+       detail:'Not reached'},
+    ];
+  }
+
+  if(isQualFail){
+    // binary_gate=passed, quality_gate=rejected, ripeness=not_run
+    const det = data.details || {};
+    return [
+      {stage_tag:'binary_gate',            stage_order:1, stage_outcome_tag:'passed',
+       detail:'Palm fruit detected',
+       palm_score: det.palm_score},
+      {stage_tag:'quality_gate',           stage_order:2, stage_outcome_tag:'rejected',
+       detail:data.error||ERR_LABELS[code]||code,
+       stage_error_code_tag:code, stage_hint_message:data.hint,
+       // quality metrics from InputValidationError.details (same fields as pipeline_stages)
+       aspect_ratio:det.aspect_ratio, brightness:det.brightness,
+       contrast_std:det.contrast_std, sharpness:det.sharpness},
+      {stage_tag:'ripeness_classification',stage_order:3, stage_outcome_tag:'not_run',
+       detail:'Not reached'},
+    ];
+  }
+
+  // runtime_error / unexpected input_error → binary=error
+  return [
+    {stage_tag:'binary_gate',            stage_order:1, stage_outcome_tag:'error',
+     detail:data.error||ERR_LABELS[code]||'Runtime error',
+     stage_error_code_tag:code},
+    {stage_tag:'quality_gate',           stage_order:2, stage_outcome_tag:'not_run', detail:''},
+    {stage_tag:'ripeness_classification',stage_order:3, stage_outcome_tag:'not_run', detail:''},
+  ];
+}
+
+function _renderAccepted(data, wall){
+  const stages = _buildStagesFromResponse(data, 200);
+  _showResult({
+    outcome:             'accepted',
+    request_uid:         data.request_id,
+    source_tag:          'api',
+    http_status_code:    200,
+    // inference_latency_ms — app.py maps predict_bytes()["avg_ms"] → "latency_ms"
+    inference_latency_ms: data.latency_ms,
+    // api_latency_ms — app.py variable api_latency → "api_ms"
+    api_latency_ms:      data.api_ms || wall,
+    timed_runs:          data.runs,
+    predicted_label:     data.label,
+    top1_probability:    data.probability,
+    image_name:          S.file?.name,
+    stages,
+  });
+}
+
+function _renderRejected(data, httpStatus, wall){
+  const code       = data.error_code || data.error || '';
+  const reqOutcome = httpStatus===422 ? 'gate_rejected'
+                   : httpStatus===503 ? 'runtime_error' : 'input_error';
+  const stages = _buildStagesFromResponse(data, httpStatus);
+  _showResult({
+    outcome:          reqOutcome,
+    request_uid:      data.request_id,
+    source_tag:       'api',
+    http_status_code: httpStatus,
+    inference_latency_ms: null,
+    api_latency_ms:   wall,
+    timed_runs:       null,
+    predicted_label:  null,
+    top1_probability: null,
+    image_name:       S.file?.name,
+    // error fields from inference_requests
+    error_code_tag:   code,
+    error_message:    data.error,   // InputValidationError.to_dict() key is "error"
+    hint_message:     data.hint,
+    stages,
+  });
+}
+
+function _demoMode(){
+  const labels=['Ripe','Overripe','Underripe'];
+  const lbl=labels[Math.floor(Math.random()*3)];
+  const prob=0.65+Math.random()*0.3;
+  const inf=280+Math.floor(Math.random()*120);
+  _showResult({
+    outcome:'accepted',
+    request_uid:'demo-'+Math.random().toString(36).slice(2,8),
+    source_tag:'demo', http_status_code:200,
+    inference_latency_ms:inf, api_latency_ms:inf+60, timed_runs:3,
+    predicted_label:lbl, top1_probability:prob,
+    image_name:S.file?.name||'demo.jpg',
+    stages:[
+      {stage_tag:'binary_gate',            stage_order:1,stage_outcome_tag:'passed',   detail:'Palm fruit detected (demo)'},
+      {stage_tag:'quality_gate',           stage_order:2,stage_outcome_tag:'passed',   detail:'Quality OK (demo)'},
+      {stage_tag:'ripeness_classification',stage_order:3,stage_outcome_tag:'completed',
+       detail:`${lbl} · ${(prob*100).toFixed(1)}% (demo)`,
+       predicted_label:lbl, top1_probability:prob, stage_latency_ms:inf},
+    ],
+    _demo:true,
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   RENDER RESULT
+   Single function that populates the Result view from a structured
+   object whose fields mirror v_request_pipeline_trace + pipeline_stages
+══════════════════════════════════════════════════════════════════ */
+function _showResult(r){
+  // ── thumb ──
+  if(S.file){
+    document.getElementById('res-thumb-img').src=URL.createObjectURL(S.file);
+    document.getElementById('res-thumb').style.display='block';
+  }
+
+  // ── pipeline trace (3 rows) ──
+  _renderPipeline(r.stages);
+
+  // ── quality metrics strip (from quality_gate stage fields) ──
+  const qStage = r.stages?.find(s=>s.stage_tag==='quality_gate');
+  const hasQ = qStage && (qStage.aspect_ratio!=null||qStage.brightness!=null||
+                          qStage.contrast_std!=null||qStage.sharpness!=null);
+  document.getElementById('qstrip-wrap').style.display = hasQ ? 'block':'none';
+  if(hasQ) _renderQStrip(qStage);
+
+  const ok = r.outcome==='accepted';
+  document.getElementById('res-block').style.display = ok ? 'block':'none';
+  document.getElementById('rej-card').style.display  = ok ? 'none':'block';
+
+  if(ok){
+    const lbl = r.predicted_label||'—';
+    const pct = Math.round((r.top1_probability||0)*100);
+
+    document.getElementById('res-label').textContent  = lbl;
+    document.getElementById('res-label').className    = 'res-label '+lbl;
+    document.getElementById('res-sub').textContent    = lbl!=='—' ? lbl+' palm fruit detected':'—';
+
+    // Gauge — top1_probability from pipeline_stages.ripeness_classification
+    _renderGauge(pct, lbl);
+    document.getElementById('gauge-pct').textContent = pct+'%';
+
+    // Latency chips — exact field names from inference_requests
+    const m=MODELS[S.model];
+    document.getElementById('rm-inf').textContent  = r.inference_latency_ms!=null ? r.inference_latency_ms.toFixed(1)+'ms':'—';
+    document.getElementById('rm-api').textContent  = r.api_latency_ms!=null       ? Math.round(r.api_latency_ms)+'ms':'—';
+    document.getElementById('rm-mdl').textContent  = (m?.label||S.model)+' · '+((m?.pf)||'—');
+    document.getElementById('rm-img').textContent  = r.image_name ? r.image_name.split('/').pop():'—';
+    document.getElementById('rm-runs').textContent = r.timed_runs!=null ? r.timed_runs:'—';
+    // source_tag: 'api' | 'cli' — live runs always 'api' from web app
+    document.getElementById('rm-src').textContent  = (r.source_tag||'api').toUpperCase();
+    document.getElementById('rm-http').textContent = r.http_status_code||200;
+    document.getElementById('rm-uid').textContent  = r.request_uid||'—';
+
+    if(r.predicted_label && S.dist[r.predicted_label]!==undefined) S.dist[r.predicted_label]++;
+  } else {
+    // error_code_tag, error_message, hint_message from inference_requests
+    const code = r.error_code_tag||'';
+    document.getElementById('rej-code').textContent = code ? code.toUpperCase().replace(/_/g,' '):(REQ_OUTCOMES[r.outcome]||r.outcome);
+    document.getElementById('rej-msg').textContent  = r.error_message||'Image rejected by the pipeline.';
+    document.getElementById('rej-hint').textContent = r.hint_message||'Retry with a clear palm fruit bunch image.';
+  }
+
+  // ── local history log ──
+  S.history.unshift({...r, _local:true});
+  _renderHistTable();
+  _updateStats();
+  switchView('result');
+  /* Reset capture view so next tap starts fresh */
+  resetCapture();
+}
+
+/* ── render 3 pipeline rows ── */
+function _renderPipeline(stages){
+  const el=document.getElementById('pipeline-trace');
+  if(!stages?.length){el.innerHTML='';return;}
+  el.innerHTML=stages.map((s,i)=>{
+    const oc=STAGE_OUTCOME[s.stage_outcome_tag]||{icon:'?',label:s.stage_outcome_tag,cls:s.stage_outcome_tag};
+    const nm=STAGE_NAMES[s.stage_tag]||s.stage_tag;
+
+    // Build detail string from stage-specific fields
+    let det=s.detail||'';
+    if(!det){
+      if(s.stage_tag==='binary_gate'){
+        const pts=[];
+        if(s.palm_score!=null)       pts.push(`palm score: ${s.palm_score.toFixed(3)}`);
+        if(s.stage_error_code_tag)   pts.push(ERR_LABELS[s.stage_error_code_tag]||s.stage_error_code_tag);
+        det=pts.join(' · ')||oc.label;
+      } else if(s.stage_tag==='quality_gate'){
+        const pts=[];
+        if(s.stage_error_code_tag)   pts.push(ERR_LABELS[s.stage_error_code_tag]||s.stage_error_code_tag);
+        det=pts.join(' · ')||oc.label;
+      } else {
+        if(s.predicted_label&&s.top1_probability!=null){
+          det=`${s.predicted_label} · ${(s.top1_probability*100).toFixed(1)}%`;
+          if(s.stage_latency_ms!=null) det+=` · ${s.stage_latency_ms.toFixed(1)}ms`;
+        } else { det=oc.label; }
+      }
+    }
+    // hint from stage_hint_message (stage-level, from pipeline_stages)
+    const hint=s.stage_hint_message||(s.stage_outcome_tag==='not_run'?'Not reached — upstream stage failed.':'');
+    return `<div class="pipe-row">
+      <div class="pipe-ic ${oc.cls}">${oc.icon}</div>
+      <div class="pipe-body">
+        <div class="pipe-name">${i+1}. ${nm}</div>
+        <div class="pipe-detail">${det}${hint?'<br>'+hint:''}</div>
+      </div>
+      <div class="pipe-badge ${oc.cls}">${oc.label}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ── quality metrics strip — fields from pipeline_stages quality_gate row ── */
+function _renderQStrip(q){
+  const chips=[];
+  if(q.aspect_ratio !=null) chips.push(['Aspect ratio',q.aspect_ratio.toFixed(3)]);
+  if(q.brightness   !=null) chips.push(['Brightness',  q.brightness.toFixed(1)]);
+  if(q.contrast_std !=null) chips.push(['Contrast σ',  q.contrast_std.toFixed(2)]);
+  if(q.sharpness    !=null) chips.push(['Sharpness',   q.sharpness.toFixed(2)]);
+  if(q.palm_score   !=null) chips.push(['Palm score',  q.palm_score.toFixed(3)]);
+  document.getElementById('qstrip').innerHTML=
+    chips.map(([k,v])=>`<div class="qchip"><span class="ql">${k}</span>${v}</div>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   HISTORY  →  GET /history
+   STATS    →  GET /stats
+   Both query v_request_pipeline_trace + pipeline_stages via api_additions.py
+══════════════════════════════════════════════════════════════════ */
+async function loadHistory(){
+  try{
+    const r=await fetch(`${S.host}/history?filter=${encodeURIComponent(S.logFilter)}&page=1&per_page=60`);
+    if(r.ok){const d=await r.json(); if(d.records?.length) S.history=d.records;}
+  }catch(_){}
+  try{
+    const r=await fetch(`${S.host}/stats?filter=${encodeURIComponent(S.logFilter)}`);
+    if(r.ok){
+      const d=await r.json();
+      // Stat cards from /stats aggregates on inference_requests
+      if(d.total!=null)     document.getElementById('st-tot').textContent=d.total;
+      if(d.accepted!=null)  document.getElementById('st-acc').textContent=d.accepted;
+      // avg_inference_latency_ms = AVG(inference_requests.inference_latency_ms)
+      if(d.avg_inference_latency_ms!=null)
+        document.getElementById('st-lat').textContent=Math.round(d.avg_inference_latency_ms)+'ms';
+      // class_dist from COUNT of pipeline_stages.predicted_label WHERE stage_tag='ripeness_classification'
+      if(d.class_dist){S.dist=d.class_dist; _updateDistChart();}
+      // rejection_breakdown: error_code_tag → count from inference_requests WHERE request_outcome_tag='gate_rejected'
+      if(d.rejection_breakdown) buildRejChart(d.rejection_breakdown);
+      // latency_series: last 30 inference_latency_ms values (newest-first → reversed for chart)
+      if(d.latency_series)      buildLatChart(d.latency_series);
+    }
+  }catch(_){}
+  _renderHistTable();
+  _updateStats();
+}
+
+function filterLog(btn, f){
+  document.querySelectorAll('.stab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  S.logFilter=f;
+  _renderHistTable();
+}
+
+/* Render history table — field names from v_request_pipeline_trace:
+     predicted_label, top1_probability, binary_gate_outcome, quality_gate_outcome,
+     ripeness_stage_outcome, inference_latency_ms, model_path, source_tag, created_at_utc */
+function _renderHistTable(){
+  const filter=S.logFilter;
+  const rows=filter==='all' ? S.history
+    : filter==='api'||filter==='cli'
+      ? S.history.filter(r=>(r.source_tag||'api')===filter)
+      : S.history.filter(r=>{
+          const mp=r.model_path||r.model_file||'';
+          return mp.includes(filter);
+        });
+
+  const tb=document.getElementById('hist-body');
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="7"><div class="empty"><div class="ei">📋</div><p>No records — connect to Pi and refresh.</p></div></td></tr>`;
+    return;
+  }
+  tb.innerHTML=rows.slice(0,60).map(r=>{
+    // predicted_label from v_request_pipeline_trace (MAX CASE on pipeline_stages)
+    const lbl=r.predicted_label||(r.outcome==='accepted'?r.predicted_label:null);
+    const pCls=lbl==='Ripe'?'pill-R':lbl==='Overripe'?'pill-O':lbl==='Underripe'?'pill-U':'pill-rej';
+    const pTxt=lbl||(REQ_OUTCOMES[r.request_outcome_tag||r.outcome]||'—');
+
+    // top1_probability — pipeline_stages.ripeness_classification.top1_probability
+    const conf=r.top1_probability!=null?(r.top1_probability*100).toFixed(1)+'%':'—';
+
+    // inference_latency_ms — inference_requests (model-only timing)
+    const inf=r.inference_latency_ms!=null?r.inference_latency_ms.toFixed(1)+'ms':'—';
+
+    // model_path from model_registry — absolute path, show basename
+    const mfile=(r.model_path||r.model_file||'—').split(/[\\/]/).pop();
+    const mshort=mfile.length>16?mfile.slice(0,16)+'…':mfile;
+
+    // source_tag: 'api' | 'cli'
+    const src=r.source_tag||'api';
+
+    // created_at_utc from inference_requests
+    const ts=(r.created_at_utc||r.timestamp||'—').slice(0,19).replace('T',' ');
+
+    // pipeline dots: binary_gate_outcome, quality_gate_outcome, ripeness_stage_outcome
+    // these are the pivoted columns in v_request_pipeline_trace
+    const bgo=r.binary_gate_outcome   ||(r.stages?.[0]?.stage_outcome_tag)||'not_run';
+    const qgo=r.quality_gate_outcome  ||(r.stages?.[1]?.stage_outcome_tag)||'not_run';
+    const rso=r.ripeness_stage_outcome||(r.stages?.[2]?.stage_outcome_tag)||'not_run';
+
+    return `<tr>
+      <td><span class="pill ${pCls}">${pTxt}</span></td>
+      <td style="font-family:var(--fm)">${conf}</td>
+      <td>
+        <div class="pdots" title="binary·quality·ripeness">
+          <span class="pd ${bgo}" title="binary_gate: ${bgo}"></span>
+          <span class="pd ${qgo}" title="quality_gate: ${qgo}"></span>
+          <span class="pd ${rso}" title="ripeness: ${rso}"></span>
+        </div>
+      </td>
+      <td style="font-family:var(--fm)">${inf}</td>
+      <td style="font-size:10px;font-family:var(--fm);color:var(--t2)" title="${mfile}">${mshort}</td>
+      <td><span class="src-tag ${src}">${src}</span></td>
+      <td style="font-size:10px;color:var(--t2)">${ts}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _updateStats(){
+  const tot=S.history.length;
+  const acc=S.history.filter(r=>(r.request_outcome_tag||r.outcome)==='accepted').length;
+  const rej=S.history.filter(r=>(r.request_outcome_tag||r.outcome)==='gate_rejected').length;
+  document.getElementById('st-tot').textContent=tot||'—';
+  document.getElementById('st-acc').textContent=acc||'—';
+  document.getElementById('st-rej').textContent=tot?Math.round(rej/tot*100)+'%':'—';
+  const lats=S.history.filter(r=>r.inference_latency_ms!=null).map(r=>r.inference_latency_ms);
+  if(lats.length) document.getElementById('st-lat').textContent=Math.round(lats.reduce((a,b)=>a+b)/lats.length)+'ms';
+  _updateDistChart();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CHARTS
+══════════════════════════════════════════════════════════════════ */
+function _renderGauge(pct,lbl){
+  const C={Ripe:'#4caf6e',Overripe:'#e8a020',Underripe:'#e05a4a'};
+  const ctx=document.getElementById('gauge-cv').getContext('2d');
+  if(gaugeChart) gaugeChart.destroy();
+  gaugeChart=new Chart(ctx,{type:'doughnut',
+    data:{datasets:[{data:[pct/100,1-pct/100],
+      backgroundColor:[C[lbl]||'#e8a020','rgba(255,255,255,0.06)'],borderWidth:0,borderRadius:3}]},
+    options:{rotation:-90,circumference:180,cutout:'76%',responsive:false,
+      animation:{duration:500},plugins:{legend:{display:false},tooltip:{enabled:false}}},
+  });
+}
+
+// Class distribution — predicted_label counts from pipeline_stages.ripeness_classification
+function buildDistChart(vals){
+  const ctx=document.getElementById('dist-cv').getContext('2d');
+  if(distChart) distChart.destroy();
+  distChart=new Chart(ctx,{type:'doughnut',
+    data:{labels:['Ripe','Overripe','Underripe'],
+      datasets:[{data:vals,backgroundColor:['#4caf6e','#e8a020','#e05a4a'],borderWidth:0,borderRadius:3}]},
+    options:{cutout:'65%',responsive:false,animation:{duration:400},
+      plugins:{legend:{display:false},tooltip:{enabled:false}}},
+  });
+  _renderDistLeg(vals);
+}
+
+function _updateDistChart(){
+  const v=[S.dist.Ripe||0,S.dist.Overripe||0,S.dist.Underripe||0];
+  const vals=v.every(x=>x===0)?[1,1,1]:v;
+  if(distChart){distChart.data.datasets[0].data=vals;distChart.update('none');}
+  _renderDistLeg(v.every(x=>x===0)?null:v);
+}
+
+function _renderDistLeg(vals){
+  const t=vals?vals.reduce((a,b)=>a+b,0)||1:3;
+  const L=['Ripe','Overripe','Underripe'],C=['#4caf6e','#e8a020','#e05a4a'];
+  document.getElementById('dist-leg').innerHTML=L.map((l,i)=>`
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="width:10px;height:10px;border-radius:2px;background:${C[i]};flex-shrink:0"></span>
+      <span style="font-size:12px;color:var(--t1)">${l}</span>
+      <span style="font-size:12px;font-family:var(--fm);color:var(--t2);margin-left:auto">
+        ${vals?Math.round(vals[i]/t*100)+'%':'—'}
+      </span>
+    </div>`).join('');
+}
+
+// Rejection breakdown — error_code_tag from inference_requests
+function buildRejChart(bd){
+  const ctx=document.getElementById('rej-cv').getContext('2d');
+  if(rejChart) rejChart.destroy();
+  const keys=Object.keys(bd).length
+    ? Object.keys(bd)
+    : ['not_palm_fruit','low_resolution','bad_aspect_ratio','bad_exposure','low_contrast','blurry_image'];
+  rejChart=new Chart(ctx,{type:'bar',
+    data:{labels:keys.map(k=>ERR_LABELS[k]||k),
+      datasets:[{label:'Rejections',data:keys.map(k=>bd[k]||0),
+        backgroundColor:'#e05a4a',borderRadius:3,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      scales:{x:{ticks:{color:'#7a9070',font:{size:10},stepSize:1},grid:{color:'rgba(255,255,255,.05)'}},
+              y:{ticks:{color:'#b8c4b0',font:{size:10}},grid:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.parsed.x} rejections`}}},
+      animation:{duration:500}},
+  });
+}
+
+// Inference latency over time — inference_latency_ms from inference_requests
+function buildLatChart(series){
+  const ctx=document.getElementById('lat-cv').getContext('2d');
+  if(latChart) latChart.destroy();
+  // series is newest-first from DB; reverse for chronological display
+  const vals=[...series].reverse();
+  latChart=new Chart(ctx,{type:'line',
+    data:{labels:vals.map((_,i)=>`#${i+1}`),
+      datasets:[{label:'Inference ms',data:vals,borderColor:'#e8a020',
+        backgroundColor:'rgba(232,160,32,.1)',borderWidth:1.5,pointRadius:2,fill:true,tension:.3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{x:{ticks:{color:'#7a9070',font:{size:9},maxTicksLimit:10},grid:{display:false}},
+              y:{ticks:{color:'#7a9070',font:{size:10},callback:v=>v+'ms'},grid:{color:'rgba(255,255,255,.05)'}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.parsed.y.toFixed(1)}ms`}}},
+      animation:{duration:400}},
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SETTINGS
+══════════════════════════════════════════════════════════════════ */
+function saveHost(v){S.host=v.trim();localStorage.setItem('host',S.host);}
+
+function selectModel(v){
+  S.model=v; localStorage.setItem('model',v);
+  updateBadge(); updateMdlSub();
+}
+
+function updateBadge(){
+  const m=MODELS[S.model];
+  document.getElementById('cap-name').textContent=m?.label||S.model;
+  document.getElementById('cap-pf').textContent=m?.pf||'—';
+  const dot=document.getElementById('cap-dot');
+  dot.className='mdot'+(m?.dot?' '+m.dot:'');
+}
+
+function updateMdlSub(){
+  const m=MODELS[S.model];
+  document.getElementById('mdl-sub').textContent=m
+    ?`${m.acc} · ${m.size} · pf:${m.pf} · gate:${m.gate}`:'—';
+}
+
+async function testConn(){
+  const dot=document.getElementById('cdot'),tx=document.getElementById('ctext'),d=document.getElementById('conn-d');
+  dot.className='cdot'; tx.textContent='Testing…';
+  try{
+    const t0=performance.now();
+    const r=await fetch(`${S.host}/health`,{signal:AbortSignal.timeout(4000)});
+    const ms=Math.round(performance.now()-t0);
+    if(r.ok){
+      const data=await r.json();
+      dot.className='cdot on'; tx.textContent='Online';
+      // /health returns: status, ready, model, labels, classes, runtime_error,
+      //                  input_gate (from get_input_gate_config()), stored_results, result_ttl_seconds
+      const ig=data.input_gate||{};
+      d.textContent=`${ms}ms · classes:${(data.classes||[]).join('/')} · cached:${data.stored_results||0}`;
+
+      // Populate gate thresholds from get_input_gate_config() output
+      S.gateConfig=ig;
+      _renderGateThresholds(ig);
+    } else { throw new Error(`HTTP ${r.status}`); }
+  } catch(e){
+    dot.className='cdot off'; tx.textContent='Offline';
+    document.getElementById('conn-d').textContent=e.message||'Unreachable';
+    document.getElementById('gate-thresholds').style.display='none';
+  }
+}
+
+/* Render gate thresholds from get_input_gate_config() — all fields mapped */
+function _renderGateThresholds(ig){
+  if(!ig||!Object.keys(ig).length) return;
+  document.getElementById('gate-thresholds').style.display='block';
+  const fields=[
+    ['Min width px',      ig.min_image_width],
+    ['Min height px',     ig.min_image_height],
+    ['Aspect ratio',      ig.min_aspect_ratio&&ig.max_aspect_ratio ? `${ig.min_aspect_ratio}–${ig.max_aspect_ratio}`:null],
+    ['Brightness',        ig.min_brightness&&ig.max_brightness     ? `${ig.min_brightness}–${ig.max_brightness}`:null],
+    ['Min contrast σ',    ig.min_contrast_std],
+    ['Min sharpness',     ig.min_sharpness],
+    ['Palm gate',         ig.palm_binary_gate_enabled!=null ? (ig.palm_binary_gate_enabled?'Enabled':'Disabled'):null],
+    ['Palm threshold',    ig.palm_binary_threshold],
+    ['Preprocess family', ig.model_preprocess_family],
+    ['Palm model',        ig.palm_binary_model_exists!=null ? (ig.palm_binary_model_exists?'Found':'Missing'):null],
+  ].filter(([,v])=>v!=null);
+  document.getElementById('gate-grid').innerHTML=fields.map(([k,v])=>`
+    <div class="gate-chip">
+      <div class="gk">${k}</div>
+      <div class="gv">${v}</div>
+    </div>`).join('');
+}
+
+function applyTheme(t){
+  document.body.setAttribute('data-theme',t);
+  const tc={dark:'#0a1a10',light:'#ede8dc',hc:'#000'};
+  document.querySelector('meta[name="theme-color"]').content=tc[t]||tc.dark;
+}
+
+function setTheme(t){
+  S.theme=t; localStorage.setItem('theme',t); applyTheme(t);
+  document.querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('th-'+t).classList.add('active');
+  setTimeout(()=>{buildRejChart(S.lastRejBreakdown||{});buildLatChart(S.lastLatSeries||[]);_updateDistChart();},60);
+}
+
+async function installPWA(){
+  if(!S.deferInst) return;
+  S.deferInst.prompt();
+  const{outcome}=await S.deferInst.userChoice;
+  if(outcome==='accepted'){document.getElementById('install-btn').style.display='none';S.deferInst=null;}
+}
+
+/* ── utilities ── */
+function showSpinner(v,t){document.getElementById('spinner').classList.toggle('show',v);if(t)document.getElementById('spin-t').textContent=t;}
+let _tT;
+function showToast(m){const el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tT);_tT=setTimeout(()=>el.classList.remove('show'),3200);}
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>

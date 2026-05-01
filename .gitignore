@@ -5,9 +5,11 @@ venv/
 env/
 ENV/
 .env/
+.venv_tf213/
 
 # Python bytecode
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -53,3 +55,71 @@ inspect_model.py
 test_load.py
 scripts/convert_tflite_temp.py
 scripts/manual_convert.py
+
+# ── MODEL WEIGHT FILES (large binaries) ───────────────────────────
+# Keras / TensorFlow saved models
+*.h5
+*.keras
+# PyTorch checkpoints
+*.pt
+*.pth
+# TFLite runtime models
+*.tflite
+# ONNX intermediates (conversion artifacts, not source)
+*.onnx
+# Auto-generated labels per conversion run
+models/labels_*.json
+models/tflite_manifest_*.json
+
+# ── NOTEBOOK AUTO-GENERATED CONVERSION ARTIFACTS ─────────────────
+# Exclude entire onnx2tf output directories (produced by notebooks)
+notebooks/saved_models/resnet18_onnx2tf_*/
+notebooks/saved_models/resnet18_onnx2tf_int8_*/
+notebooks/saved_models/shufflenetv2_onnx2tf_*/
+
+# Exclude auto-generated schema files from onnx2tf
+schema.fbs
+schema_generated.py
+*_tensor_correspondence_report.json
+
+# ── CONFUSION MATRIX & PLOT IMAGES (generated per notebook run) ──
+notebooks/saved_models/confusion_matrix_*.png
+notebooks/saved_models/classification_metrics_*.png
+notebooks/saved_models/training_curves_*.png
+notebooks/saved_models/training_history_*.png
+notebooks/reports/*.png
+
+# ── EXPERIMENT LOGS & CLASSIFICATION REPORTS (generated artifacts)
+notebooks/saved_models/experiment_log_*.csv
+notebooks/saved_models/classification_report_*.xlsx
+notebooks/saved_models/palm_ripeness_best_*.h5
+notebooks/saved_models/palm_ripeness_final_*.h5
+notebooks/saved_models/palm_ripeness_finetuned_*.h5
+notebooks/saved_models/palm_ripeness_best_*.pt
+notebooks/saved_models/palm_ripeness_finetuned_*.pt
+notebooks/saved_models/palm_ripeness_final_*.pt
+notebooks/saved_models/resnet18_*.onnx
+notebooks/saved_models/shufflenetv2_*.onnx
+notebooks/saved_models/*_sim.onnx
+notebooks/reports/*.xlsx
+
+# ── GENERATED INT8 MODELS (inside notebooks/models/) ─────────────
+notebooks/models/
+
+# ── SAVED MODEL CHECKPOINTS (root level) ─────────────────────────
+saved_models/
+
+# ── GENERATED CLASSIFICATION REPORTS ──────────────────────────────
+reports/*.xlsx
+
+# ── INFERENCE LOG DATABASE ───────────────────────────────────────
+reports/inference_log.db*
+reports/inference_log.db-shm
+reports/inference_log.db-wal
+
+# ── TEMP / DEBUG SCRIPTS ─────────────────────────────────────────
+scripts/audit_int8_calibration.py
+scripts/calibration_audit_report.json
+scripts/convert_tflite_calibrated.py
+scripts/import torch.py
+scripts/sanity_check_tflite_vs_pytorch.py

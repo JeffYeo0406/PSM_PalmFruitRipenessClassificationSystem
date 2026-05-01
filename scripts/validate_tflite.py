@@ -15,7 +15,7 @@ from tensorflow.keras.applications.mobilenet_v3 import preprocess_input as prepr
 from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_input_efficientnet
 
 
-SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "efficientnet", "none")
+SUPPORTED_PREPROCESS_FAMILIES = ("mobilenet_v2", "mobilenet_v3", "efficientnet", "imagenet_timm", "imagenet_torchvision", "none")
 
 def load_interpreter(model_path, prefer_reference_kernels=False):
     """Load TFLite interpreter with fallback chain.
@@ -56,6 +56,13 @@ def _apply_preprocess(img, preprocess_family="mobilenet_v2"):
         return preprocess_input_mobilenet_v3(img)
     if family == "efficientnet":
         return preprocess_input_efficientnet(img)
+    if family == "imagenet_timm" or family == "imagenet_torchvision":
+        # ImageNet normalization: (img / 255.0 - mean) / std
+        # mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]
+        img_f32 = tf.cast(img, tf.float32) / 255.0
+        mean = tf.constant([0.485, 0.456, 0.406], dtype=tf.float32)
+        std = tf.constant([0.229, 0.224, 0.225], dtype=tf.float32)
+        return (img_f32 - mean) / std
     if family == "none":
         return tf.cast(img, tf.float32)
     raise ValueError(

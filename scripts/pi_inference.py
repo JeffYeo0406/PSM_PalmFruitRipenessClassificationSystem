@@ -43,7 +43,7 @@ if Interpreter is None:
 
 
 IMG_SIZE = (224, 224)
-SUPPORTED_PREPROCESS_FAMILIES = {"mobilenet_v2", "mobilenet_v3", "efficientnet", "none"}
+SUPPORTED_PREPROCESS_FAMILIES = {"mobilenet_v2", "mobilenet_v3", "efficientnet", "imagenet_timm", "imagenet_torchvision", "none"}
 
 
 def _preprocess_mobilenet_v2(arr: np.ndarray) -> np.ndarray:
@@ -54,6 +54,32 @@ def _preprocess_mobilenet_v2(arr: np.ndarray) -> np.ndarray:
 def _preprocess_mobilenet_v3(arr: np.ndarray) -> np.ndarray:
     """MobileNetV3 default path with in-model preprocessing enabled."""
     return arr.astype(np.float32)
+
+
+def _preprocess_imagenet_timm(arr: np.ndarray) -> np.ndarray:
+    """ImageNet normalization for timm models (ImageNet1K stats).
+    
+    Used by ShuffleNetV2 and other timm backbones.
+    Assumes input is uint8 RGB [0, 255].
+    Output range: approximately [-2.1, 2.6] after normalization.
+    """
+    img_f32 = arr.astype(np.float32) / 255.0
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    return (img_f32 - mean) / std
+
+
+def _preprocess_imagenet_torchvision(arr: np.ndarray) -> np.ndarray:
+    """ImageNet normalization for torchvision models (ImageNet1K stats).
+    
+    Used by ResNet18 and other torchvision backbones.
+    Assumes input is uint8 RGB [0, 255].
+    Output range: approximately [-2.1, 2.6] after normalization.
+    """
+    img_f32 = arr.astype(np.float32) / 255.0
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    return (img_f32 - mean) / std
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -383,6 +409,10 @@ def _apply_model_preprocess(arr: np.ndarray, preprocess_family: str) -> np.ndarr
         return _preprocess_mobilenet_v3(arr)
     if family == "efficientnet":
         return (arr.astype(np.float32) / 127.5) - 1.0
+    if family == "imagenet_timm":
+        return _preprocess_imagenet_timm(arr)
+    if family == "imagenet_torchvision":
+        return _preprocess_imagenet_torchvision(arr)
     return arr.astype(np.float32)
 
 
