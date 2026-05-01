@@ -1,6 +1,8 @@
 import io
+import json as _json
 import logging
 import os
+import sqlite3 as _sqlite3
 import sys
 import threading
 import time
@@ -31,6 +33,8 @@ from scripts.pi_inference import (  # noqa: E402
     get_input_gate_config,
     load_interpreter,
     load_labels,
+    MODEL_PREPROCESS_FAMILY,
+    _normalize_preprocess_family,
     PALM_BINARY_MODEL_PATH,
     PALM_BINARY_THRESHOLD,
     predict_bytes,
@@ -174,6 +178,16 @@ def _purge_expired_results(now=None):
         del results_store[req_id]
 
 
+def _db():
+    """Open a read-only WAL connection to inference_log.db."""
+    from inference_db import resolve_db_path
+    conn = _sqlite3.connect(resolve_db_path(), timeout=5.0)
+    conn.row_factory = _sqlite3.Row
+    conn.execute("PRAGMA query_only = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
 @app.errorhandler(RequestEntityTooLarge)
 def handle_too_large(_):
     return jsonify({"error": "file too large"}), 413
@@ -256,12 +270,25 @@ def classify():
                 )
                 return jsonify({"error": error_message}), 503
 
+            # Read optional per-request preprocess family sent by web app.
+            # Falls back to module-level MODEL_PREPROCESS_FAMILY if not provided.
+            req_preprocess_family = request.form.get("preprocess_family", "").strip()
+            try:
+                effective_preprocess_family = (
+                    _normalize_preprocess_family(req_preprocess_family)
+                    if req_preprocess_family
+                    else MODEL_PREPROCESS_FAMILY
+                )
+            except ValueError:
+                effective_preprocess_family = MODEL_PREPROCESS_FAMILY
+
             result = predict_bytes(
                 image_bytes,
                 bundle=bundle,
                 labels=labels,
                 warmup=WARMUP_RUNS,
                 runs=RUNS,
+                preprocess_family=effective_preprocess_family,
             )
     except InputValidationError as exc:
         logging.info("req=%s rejected by input gate: %s", req_id, exc.message)
@@ -425,6 +452,245 @@ def classify():
 
     response_data["result_path"] = f"/result/{req_id}"
     return jsonify(response_data)
+
+
+# ── GET /history ───────────────────────────────────────────────────────────
+#
+# Queries v_request_pipeline_trace joined with model_registry for the model
+# path, plus per-request pipeline_stages row details.
+#
+# Query params:
+#   filter   — 'all' | model_path fragment | source_tag ('api','cli')
+#   page     — 1-based page number (default 1)
+#   per_page — rows per page (default 50, max 100)
+
+@app.route("/history", methods=["GET"])
+def history():
+    filter_val = request.args.get("filter", "all").strip()
+    page       = max(1, int(request.args.get("page", 1)))
+    per_page   = min(100, max(1, int(request.args.get("per_page", 50))))
+    offset     = (page - 1) * per_page
+
+    source_tags = {"api", "cli"}
+    by_source = filter_val in source_tags
+
+    try:
+        with _db() as conn:
+            if filter_val == "all":
+                where, params = "1=1", []
+            elif by_source:
+                where, params = "ir.source_tag = ?", [filter_val]
+            else:
+                where, params = "mr.model_path LIKE ?", [f"%{filter_val}%"]
+
+            total = conn.execute(
+                f"""SELECT COUNT(*)
+                    FROM inference_requests ir
+                    JOIN model_registry mr ON mr.model_registry_id = ir.model_registry_id
+                    WHERE {where}""",
+                params,
+            ).fetchone()[0]
+
+            rows = conn.execute(
+                f"""SELECT
+                        vt.request_uid, vt.source_tag,
+                        vt.request_outcome_tag, vt.error_code_tag,
+                        mr.model_path,
+                        vt.image_name, vt.image_size_bytes,
+                        vt.image_width_px, vt.image_height_px,
+                        vt.inference_latency_ms, vt.api_latency_ms,
+                        vt.http_status_code, vt.created_at_utc,
+                        vt.binary_gate_outcome, vt.quality_gate_outcome,
+                        vt.ripeness_stage_outcome,
+                        vt.predicted_label, vt.top1_probability,
+                        vt.inference_id
+                    FROM v_request_pipeline_trace vt
+                    JOIN model_registry mr ON mr.model_registry_id = vt.model_registry_id
+                    WHERE {where}
+                    ORDER BY vt.created_at_utc DESC
+                    LIMIT ? OFFSET ?""",
+                params + [per_page, offset],
+            ).fetchall()
+
+            records = []
+            for row in rows:
+                stage_rows = conn.execute(
+                    """SELECT stage_tag, stage_order, stage_outcome_tag,
+                             palm_score, binary_threshold, binary_gate_pass,
+                             aspect_ratio, brightness, contrast_std, sharpness,
+                             quality_gate_pass,
+                             predicted_label, predicted_index, top1_probability,
+                             stage_latency_ms,
+                             stage_error_code_tag, stage_error_message, stage_hint_message
+                       FROM pipeline_stages
+                       WHERE inference_id = ?
+                       ORDER BY stage_order ASC""",
+                    [row["inference_id"]],
+                ).fetchall()
+
+                stages = [
+                    {
+                        "stage_tag":            s["stage_tag"],
+                        "stage_order":          s["stage_order"],
+                        "stage_outcome_tag":    s["stage_outcome_tag"],
+                        "palm_score":           s["palm_score"],
+                        "binary_threshold":     s["binary_threshold"],
+                        "binary_gate_pass":     s["binary_gate_pass"],
+                        "aspect_ratio":         s["aspect_ratio"],
+                        "brightness":           s["brightness"],
+                        "contrast_std":         s["contrast_std"],
+                        "sharpness":            s["sharpness"],
+                        "quality_gate_pass":    s["quality_gate_pass"],
+                        "predicted_label":      s["predicted_label"],
+                        "top1_probability":     s["top1_probability"],
+                        "stage_latency_ms":     s["stage_latency_ms"],
+                        "stage_error_code_tag": s["stage_error_code_tag"],
+                        "stage_error_message":  s["stage_error_message"],
+                        "stage_hint_message":   s["stage_hint_message"],
+                    }
+                    for s in stage_rows
+                ]
+
+                records.append({
+                    "request_uid":           row["request_uid"],
+                    "source_tag":            row["source_tag"],
+                    "request_outcome_tag":   row["request_outcome_tag"],
+                    "error_code_tag":        row["error_code_tag"],
+                    "model_path":            row["model_path"],
+                    "image_name":            row["image_name"],
+                    "image_size_bytes":      row["image_size_bytes"],
+                    "image_width_px":        row["image_width_px"],
+                    "image_height_px":       row["image_height_px"],
+                    "inference_latency_ms":  row["inference_latency_ms"],
+                    "api_latency_ms":        row["api_latency_ms"],
+                    "http_status_code":      row["http_status_code"],
+                    "created_at_utc":        row["created_at_utc"],
+                    "binary_gate_outcome":   row["binary_gate_outcome"],
+                    "quality_gate_outcome":  row["quality_gate_outcome"],
+                    "ripeness_stage_outcome":row["ripeness_stage_outcome"],
+                    "predicted_label":       row["predicted_label"],
+                    "top1_probability":      row["top1_probability"],
+                    "stages":                stages,
+                })
+
+    except Exception as exc:
+        logging.warning("history endpoint error: %s", exc)
+        return jsonify({"records": [], "total": 0, "page": page, "per_page": per_page, "error": str(exc)})
+
+    return jsonify({"records": records, "total": total, "page": page, "per_page": per_page})
+
+
+# ── GET /stats ─────────────────────────────────────────────────────────────
+#
+# Aggregates from inference_requests + pipeline_stages.
+#
+# Query params:
+#   filter — same as /history
+#
+# Response:
+#   total, accepted, gate_rejected, runtime_errors,
+#   avg_inference_latency_ms, avg_api_latency_ms,
+#   class_dist, rejection_breakdown, latency_series
+
+@app.route("/stats", methods=["GET"])
+def stats():
+    filter_val = request.args.get("filter", "all").strip()
+    source_tags = {"api", "cli"}
+    by_source = filter_val in source_tags
+
+    try:
+        with _db() as conn:
+            if filter_val == "all":
+                where, params = "1=1", []
+            elif by_source:
+                where, params = "ir.source_tag = ?", [filter_val]
+            else:
+                where, params = "mr.model_path LIKE ?", [f"%{filter_val}%"]
+
+            agg = conn.execute(
+                f"""SELECT
+                        COUNT(*)                                                                AS total,
+                        SUM(CASE WHEN ir.request_outcome_tag='accepted'     THEN 1 ELSE 0 END) AS accepted,
+                        SUM(CASE WHEN ir.request_outcome_tag='gate_rejected' THEN 1 ELSE 0 END) AS gate_rejected,
+                        SUM(CASE WHEN ir.request_outcome_tag IN ('runtime_error','input_error')
+                                 THEN 1 ELSE 0 END)                                            AS runtime_errors,
+                        AVG(CASE WHEN ir.inference_latency_ms IS NOT NULL
+                                 THEN ir.inference_latency_ms END)                             AS avg_inference_latency_ms,
+                        AVG(CASE WHEN ir.api_latency_ms IS NOT NULL
+                                 THEN ir.api_latency_ms END)                                   AS avg_api_latency_ms
+                    FROM inference_requests ir
+                    JOIN model_registry mr ON mr.model_registry_id = ir.model_registry_id
+                    WHERE {where}""",
+                params,
+            ).fetchone()
+
+            # class_dist — from ripeness_classification pipeline stage
+            dist_rows = conn.execute(
+                f"""SELECT ps.predicted_label, COUNT(*) AS cnt
+                    FROM pipeline_stages ps
+                    JOIN inference_requests ir ON ir.inference_id = ps.inference_id
+                    JOIN model_registry mr ON mr.model_registry_id = ir.model_registry_id
+                    WHERE ps.stage_tag = 'ripeness_classification'
+                      AND ps.predicted_label IS NOT NULL
+                      AND {where}
+                    GROUP BY ps.predicted_label""",
+                params,
+            ).fetchall()
+            class_dist = {"Ripe": 0, "Overripe": 0, "Underripe": 0}
+            for r in dist_rows:
+                if r["predicted_label"] in class_dist:
+                    class_dist[r["predicted_label"]] = r["cnt"]
+
+            # rejection_breakdown — error_code_tag WHERE gate_rejected
+            rej_rows = conn.execute(
+                f"""SELECT ir.error_code_tag, COUNT(*) AS cnt
+                    FROM inference_requests ir
+                    JOIN model_registry mr ON mr.model_registry_id = ir.model_registry_id
+                    WHERE ir.request_outcome_tag = 'gate_rejected'
+                      AND ir.error_code_tag IS NOT NULL
+                      AND {where}
+                    GROUP BY ir.error_code_tag
+                    ORDER BY cnt DESC""",
+                params,
+            ).fetchall()
+            rejection_breakdown = {r["error_code_tag"]: r["cnt"] for r in rej_rows}
+
+            # latency_series — last 30 inference_latency_ms (newest-first)
+            lat_rows = conn.execute(
+                f"""SELECT ir.inference_latency_ms
+                    FROM inference_requests ir
+                    JOIN model_registry mr ON mr.model_registry_id = ir.model_registry_id
+                    WHERE ir.inference_latency_ms IS NOT NULL
+                      AND ir.request_outcome_tag = 'accepted'
+                      AND {where}
+                    ORDER BY ir.created_at_utc DESC
+                    LIMIT 30""",
+                params,
+            ).fetchall()
+            latency_series = [r["inference_latency_ms"] for r in lat_rows]
+
+    except Exception as exc:
+        logging.warning("stats endpoint error: %s", exc)
+        return jsonify({
+            "total": 0, "accepted": 0, "gate_rejected": 0, "runtime_errors": 0,
+            "avg_inference_latency_ms": None, "avg_api_latency_ms": None,
+            "class_dist": {"Ripe": 0, "Overripe": 0, "Underripe": 0},
+            "rejection_breakdown": {}, "latency_series": [], "error": str(exc),
+        })
+
+    return jsonify({
+        "total":                   agg["total"] or 0,
+        "accepted":                agg["accepted"] or 0,
+        "gate_rejected":           agg["gate_rejected"] or 0,
+        "runtime_errors":          agg["runtime_errors"] or 0,
+        "avg_inference_latency_ms": round(agg["avg_inference_latency_ms"], 2)
+                                    if agg["avg_inference_latency_ms"] else None,
+        "avg_api_latency_ms":      round(agg["avg_api_latency_ms"], 2)
+                                    if agg["avg_api_latency_ms"] else None,
+        "class_dist":              class_dist,
+        "rejection_breakdown":     rejection_breakdown,
+        "latency_series":          latency_series,
+    })
 
 
 @app.route("/result/<request_id>", methods=["GET"])

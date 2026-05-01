@@ -495,9 +495,9 @@ input[type="file"]{display:none}
         -->
         <option value="v2_int8">MobileNetV2 · INT8</option>
         <option value="v3_fp16">MobileNetV3 · FP16</option>
-        <option value="v3_int8">MobileNetV3 · INT8 ⚠</option>
+        <!-- <option value="v3_int8">MobileNetV3 · INT8 ⚠</option> -->
         <option value="eff_fp16">EfficientNetB0 · FP16</option>
-        <option value="eff_int8">EfficientNetB0 · INT8 ⚠</option>
+        <!-- <option value="eff_int8">EfficientNetB0 · INT8 ⚠</option> -->
         <option value="shuf_fp16">ShuffleNetV2 · FP16</option>
         <option value="res18_fp16">ResNet18 · FP16</option>
       </select>
@@ -507,11 +507,11 @@ input[type="file"]{display:none}
       <div class="acc-rows">
         <div class="ar"><span class="al">V2 INT8<span class="gb pass">PASS</span></span>  <div class="atr"><div class="af" style="width:92.22%;background:var(--gr)"></div></div><span class="av">92.2%</span></div>
         <div class="ar"><span class="al">V3 FP16<span class="gb pass">PASS</span></span>  <div class="atr"><div class="af" style="width:88.89%;background:var(--gr)"></div></div><span class="av">88.9%</span></div>
-        <div class="ar"><span class="al">V3 INT8<span class="gb fail">FAIL</span></span>  <div class="atr"><div class="af" style="width:84.44%;background:var(--am)"></div></div><span class="av">84.4%</span></div>
+        <!-- <div class="ar"><span class="al">V3 INT8<span class="gb fail">FAIL</span></span>  <div class="atr"><div class="af" style="width:84.44%;background:var(--am)"></div></div><span class="av">84.4%</span></div> -->
         <div class="ar"><span class="al">Eff FP16<span class="gb pass">PASS</span></span> <div class="atr"><div class="af" style="width:86.67%;background:var(--gr)"></div></div><span class="av">86.7%</span></div>
-        <div class="ar"><span class="al">Eff INT8<span class="gb fail">FAIL</span></span> <div class="atr"><div class="af" style="width:81.11%;background:var(--am)"></div></div><span class="av">81.1%</span></div>
-        <div class="ar"><span class="al">Shuffle<span class="gb tbd">TBD</span></span>   <div class="atr"><div class="af" style="width:20%;background:var(--t2)"></div></div><span class="av" style="color:var(--t2)">—</span></div>
-        <div class="ar"><span class="al">ResNet18<span class="gb tbd">TBD</span></span>  <div class="atr"><div class="af" style="width:20%;background:var(--t2)"></div></div><span class="av" style="color:var(--t2)">—</span></div>
+        <!-- <div class="ar"><span class="al">Eff INT8<span class="gb fail">FAIL</span></span> <div class="atr"><div class="af" style="width:81.11%;background:var(--am)"></div></div><span class="av">81.1%</span></div> -->
+        <div class="ar"><span class="al">Shuffle FP16<span class="gb pass">PASS</span></span><div class="atr"><div class="af" style="width:91.11%;background:var(--gr)"></div></div><span class="av">91.1%</span></div>
+        <div class="ar"><span class="al">ResNet18 FP16<span class="gb pass">PASS</span></span><div class="atr"><div class="af" style="width:89.44%;background:var(--gr)"></div></div><span class="av">89.4%</span></div>
       </div>
     </div>
   </div>
@@ -620,8 +620,8 @@ const MODELS = {
   v3_int8:   {label:'MobileNetV3 · INT8 ⚠',  pf:'mobilenet_v3',         acc:'84.4%', size:'1.32 MB', path:'palm_ripeness_best_20260421_022121_int8.tflite',           gate:'FAIL', dot:'warn'},
   eff_fp16:  {label:'EfficientNetB0 · FP16',  pf:'efficientnet',         acc:'86.7%', size:'~3 MB',   path:'palm_ripeness_best_20260423_214317_float16.tflite',        gate:'PASS', dot:''},
   eff_int8:  {label:'EfficientNetB0 · INT8 ⚠',pf:'efficientnet',         acc:'81.1%', size:'~1.6 MB', path:'palm_ripeness_best_20260423_214317_int8.tflite',           gate:'FAIL', dot:'fail'},
-  shuf_fp16: {label:'ShuffleNetV2 · FP16',    pf:'imagenet_timm',        acc:'TBD',   size:'TBD',     path:'palm_ripeness_shufflenetv2_float16.tflite',                gate:'TBD',  dot:'warn'},
-  res18_fp16:{label:'ResNet18 · FP16',         pf:'imagenet_torchvision', acc:'TBD',   size:'TBD',     path:'palm_ripeness_resnet18_float16.tflite',                    gate:'TBD',  dot:'warn'},
+  shuf_fp16: {label:'ShuffleNetV2 · FP16',    pf:'imagenet_timm',        acc:'91.1%', size:'2.89 MB', path:'palm_ripeness_best_20260427_162727_float16.tflite',       gate:'PASS', dot:''},
+  res18_fp16:{label:'ResNet18 · FP16',         pf:'imagenet_torchvision', acc:'89.4%', size:'22.5 MB', path:'palm_ripeness_best_20260428_193229_float16.tflite',       gate:'PASS', dot:''},
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -629,7 +629,7 @@ const MODELS = {
 ══════════════════════════════════════════════════════════════════ */
 const S = {
   host:        localStorage.getItem('host')  || 'http://192.168.1.100:5000',
-  model:       localStorage.getItem('model') || 'v2_int8',
+  model:       localStorage.getItem('model') || 'shuf_fp16',
   theme:       localStorage.getItem('theme') || 'dark',
   file:        null,
   history:     [],     // rows from /history — shaped like v_request_pipeline_trace

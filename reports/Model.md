@@ -245,16 +245,20 @@ The MobileNetV3 track is now fully implemented with:
 - Larger model size than MobileNetV3 — trade-off between accuracy and latency on Pi should be evaluated
 
 ### 7.4 ShuffleNetV2
-1. Finalize implementation path:
-	- Option A: TensorFlow-compatible ShuffleNetV2 implementation.
-	- Option B: PyTorch training path with additional conversion workflow.
-2. Ensure output can be converted to TFLite and integrated with current API/runtime contracts.
-3. Match the same training/evaluation protocol as other models.
-4. Export artifacts to the same naming pattern.
-5. Validate fp32/int8 and quantify accuracy drop.
-6. Benchmark edge latency and thermal stability.
-7. Compare efficiency gains against integration complexity.
-8. Document implementation overhead as part of final model decision.
+**Implementation complete (April 2026).** ONNX conversion path via PyTorch/timm → ONNX → onnxsim → onnx2tf → TFLite.
+
+1. ✅ Finalized implementation: PyTorch/timm training + ONNX conversion path (Option B).
+2. ✅ Output converted to TFLite and integrated with current API/runtime contracts.
+3. ✅ Matched same training/evaluation protocol as other models (30 epochs + 15 fine-tune).
+4. ✅ Export artifacts with standard naming pattern.
+5. ✅ Validated FP32 and INT8 — INT8 accuracy drop: **62.80% (FAIL)**.
+6. 🔲 Benchmark edge latency and thermal stability (pending).
+7. 🔲 Compare efficiency gains against integration complexity (pending).
+8. 🔲 Document implementation overhead as part of final model decision.
+
+**Deployment artifact:** `models/palm_ripeness_best_20260427_162727_float16.tflite` (FP16, 2.888 MB)
+**FP32 accuracy:** 91.11%
+**INT8 gate:** ❌ FAIL — onnx2tf INT8 pipeline is systematically broken for PyTorch backbones.
 
 ## 8. Performance Tracking Tables
 
@@ -264,7 +268,8 @@ The MobileNetV3 track is now fully implemented with:
 | MobileNetV2 | 92.78% | 0.9282 | 92.22% | 0.60% | 2.76 | To update | Current measured baseline |
 | MobileNetV3 | 88.89% | 0.8872 | 84.44% | 5.00% | 1.32 | To update | **Implementation complete.** Primary: FP16 (`palm_ripeness_best_20260421_022121_float16.tflite`). Alternative: INT8 available if 5% drop acceptable. Multi-path INT8 attempts: PTQ 6.88%, balanced PTQ 5.00%, QAT 38.69% — all exceed 2% gate. |
 | EfficientNetB0 | 87.78% | 0.8743 | 81.11% | 6.41% | To update | To update | **Implementation complete.** Primary: FP16. INT8 gate FAIL (6.41% relative drop). Best profile: 05_full_train_e30 (87.78%). 7-flow reproduction completed April 2026. |
-| ShuffleNetV2 | To update | To update | To update | To update | To update | To update | Pending implementation path |
+| ShuffleNetV2 | 91.11% | 0.9085 | 33.89% | 62.80% | 1.633 | To update | **Implementation complete (onnx2tf).** Primary: FP16 (`palm_ripeness_best_20260427_162727_float16.tflite`, 2.888 MB). INT8 gate FAIL (62.80% relative drop — catastrophic onnx2tf INT8 pipeline failure). FP32 Acc: 91.11%, FP16 equivalent. PyTorch/timm → ONNX → onnx_sim → onnx2tf → TFLite. Preprocessing: `imagenet_timm`. |
+| ResNet18 | 89.44% | 0.8905 | 35.56% | 60.25% | 11.319 | To update | **Implementation complete (onnx2tf).** Primary: FP16 (`palm_ripeness_best_20260428_193229_float16.tflite`, 22.491 MB). INT8 gate FAIL (60.25% relative drop — catastrophic onnx2tf INT8 pipeline failure). FP32 Acc: 89.44%, FP16 equivalent. PyTorch/torchvision → ONNX → onnx_sim → onnx2tf → TFLite. Preprocessing: `imagenet_torchvision`. |
 
 ### 8.1.1 MobileNetV3 7-Flow Reproduction Summary (April 2026)
 
@@ -297,6 +302,58 @@ Reference artifacts:
 Reference artifacts:
 - Reproduction log: `reports/experiment_log_efficientnetb0_repro.csv`
 - Best-run summary: `reports/efficientnetb0_repro_best_run.json`
+
+### 8.1.3 ShuffleNetV2_x1_0 — ONNX Conversion Summary (April 2026)
+
+| Metric | Value |
+|--------|-------|
+| **Backbone** | ShuffleNetV2_x1_0 (PyTorch/timm) |
+| **Pipeline** | PyTorch/timm → ONNX → onnxsim → onnx2tf → TFLite |
+| **Preprocessing** | `imagenet_timm` |
+| **Run mode** | full_train + fine_tune (30 epochs + 15 fine-tune) |
+| **Batch size** | 32 |
+| **FP32 Accuracy** | 91.11% (164/180) |
+| **Macro F1** | 0.9085 |
+| **INT8 Accuracy** | 33.89% (61/180) |
+| **INT8 Relative Drop** | **62.80%** ❌ FAIL |
+| **Deployment Format** | **FP16** (fallback) |
+| **FP32 Size** | 5.641 MB |
+| **FP16 Size** | 2.888 MB |
+| **INT8 Size** | 1.633 MB |
+| **Deployment Artifact** | `models/palm_ripeness_best_20260427_162727_float16.tflite` |
+| **INT8 Gate** | ❌ FAIL — catastrophic onnx2tf INT8 pipeline failure |
+
+**Decision:** FP16 artifact recommended for deployment (equivalent accuracy to FP32, 2.888 MB). INT8 pipeline is broken for onnx2tf path — cannot produce usable INT8 TFLite from PyTorch backbones via this path until conversion quality is resolved.
+
+Reference artifacts:
+- Training log: `notebooks/saved_models/experiment_log_onnxS.csv`
+- Best model: `saved_models/palm_ripeness_finetuned_20260427_162727.pt`
+
+### 8.1.4 ResNet18 — ONNX Conversion Summary (April 2026)
+
+| Metric | Value |
+|--------|-------|
+| **Backbone** | ResNet18 (PyTorch/torchvision) |
+| **Pipeline** | PyTorch/torchvision → ONNX → onnxsim → onnx2tf → TFLite |
+| **Preprocessing** | `imagenet_torchvision` |
+| **Run mode** | full_train + fine_tune (30 epochs + 15 fine-tune) |
+| **Batch size** | 32 |
+| **FP32 Accuracy** | 89.44% (161/180) |
+| **Macro F1** | 0.8905 |
+| **INT8 Accuracy** | 35.56% (64/180) |
+| **INT8 Relative Drop** | **60.25%** ❌ FAIL |
+| **Deployment Format** | **FP16** (fallback) |
+| **FP32 Size** | 44.966 MB |
+| **FP16 Size** | 22.491 MB |
+| **INT8 Size** | 11.319 MB |
+| **Deployment Artifact** | `models/palm_ripeness_best_20260428_193229_float16.tflite` |
+| **INT8 Gate** | ❌ FAIL — catastrophic onnx2tf INT8 pipeline failure |
+
+**Decision:** FP16 artifact recommended for deployment. ResNet18 is significantly larger (22.491 MB FP16) than MobileNetV2/V3 due to its deeper architecture. INT8 conversion shares the same onnx2tf pipeline bug seen with ShuffleNetV2.
+
+Reference artifacts:
+- Training log: `notebooks/saved_models/experiment_log_onnx.csv`
+- Best model: `saved_models/palm_ripeness_finetuned_20260428_193229.pt`
 
 ### 8.2 Estimated Ranges (Planning Only, Not Final Evidence)
 | Model | Estimated accuracy range | Estimated latency trend vs MobileNetV2 | Confidence |
