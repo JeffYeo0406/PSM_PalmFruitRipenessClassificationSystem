@@ -7,6 +7,7 @@
 | MobileNetV2 (baseline) | Production-ready | PASS (INT8 drop 0.60%) | ✅ Promotable |
 | MobileNetV3 FP16 (primary deployment) | Production-ready | INT8 gate bypassed after repeated failures | ✅ Use FP16 for MobileNetV3 |
 | MobileNetV3 INT8 (alternative option) | Available with caveat | FAIL (5.00% drop exceeds 2% gate) | ⚠️ Use if accuracy drop acceptable |
+| ResNet18 (onnx2tf) | Tested | FAIL (60.78% drop exceeds 2% gate) | ✅ Use FP16 fallback |
 
 ### MobileNetV3 Implementation Complete — Final Artifacts
 

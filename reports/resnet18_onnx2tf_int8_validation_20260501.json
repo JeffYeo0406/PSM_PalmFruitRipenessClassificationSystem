@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-01T17:06:24",
+  "model": "ResNet18",
+  "onnx_path": "notebooks/saved_models/resnet18_20260501_170624.onnx",
+  "fp32_path": "notebooks/saved_models/resnet18_onnx2tf_int8_20260501_170624/resnet18_20260501_170624_float32.tflite",
+  "fp16_path": "notebooks/saved_models/resnet18_onnx2tf_int8_20260501_170624/resnet18_20260501_170624_float16.tflite",
+  "int8_path": "notebooks/models/palm_ripeness_best_20260501_170624_int8.tflite",
+  "n_val_samples": 60,
+  "fp32_acc": 0.85,
+  "int8_acc": 0.3333,
+  "absolute_drop": 0.5167,
+  "relative_drop_pct": 60.78,
+  "gate_threshold_pct": 2.0,
+  "gate_result": "FAIL",
+  "decision": "Fallback to FP16 until onnx2tf INT8 conversion quality is resolved",
+  "notes": "Validation used stratified 20 images/class. TF oneDNN disabled (TF_ENABLE_ONEDNN_OPTS=0). INT8 produced by onnx2tf shows large accuracy regression similar to ShuffleNetV2 runs. See notebooks/ResNet18Onnx.ipynb for full run and tensor correspondence report."
+}

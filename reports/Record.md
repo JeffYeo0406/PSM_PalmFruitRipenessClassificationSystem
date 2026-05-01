@@ -39,10 +39,6 @@ Input:  palm_ripeness_best_20260311_170850.h5 (10.86 MB)
 ## 📊 Accuracy Validation Results
 
 **Test Set**: `C:\Users\jeffy\Documents\PSM\Dataset1\Test` (180 images)
-- **FP32 Accuracy**: 92.78% (167/180 correct)
-- **INT8 Accuracy**: 92.22% (166/180 correct)
-- **Absolute Drop**: 0.56%
-- **Relative Drop**: **0.60%** ✅ **PASS** (< 2% threshold)
 
 ### Validation Details
 ```
@@ -50,6 +46,37 @@ Overripe:  FP32=60/60, INT8=59/60
 Ripe:      FP32=54/60, INT8=54/60  
 Underripe: FP32=53/60, INT8=53/60
 
+
+---
+
+## ResNet18 (onnx2tf INT8 validation) — 2026-05-01
+
+Artifacts produced by the notebook run `notebooks/ResNet18Onnx.ipynb` (TIMESTAMP: 20260501_170624):
+
+- FP32 (onnx2tf float32): `notebooks/saved_models/resnet18_onnx2tf_int8_20260501_170624/resnet18_20260501_170624_float32.tflite`
+- FP16 (onnx2tf float16): `notebooks/saved_models/resnet18_onnx2tf_int8_20260501_170624/resnet18_20260501_170624_float16.tflite`
+- INT8 (onnx2tf full_integer_quant): `notebooks/models/palm_ripeness_best_20260501_170624_int8.tflite`
+
+Validation protocol:
+- Representative calibration: N_REP=500 (used for onnx2tf INT8 calibration)
+- Validation sample: stratified subset, 20 images per class → 60 images total (to avoid OOM during TFLite runtime)
+- Runtime: `TF_ENABLE_ONEDNN_OPTS=0`, using `tf.lite.Interpreter` for deterministic CPU inference
+
+Results (60-sample stratified):
+- FP32 Accuracy : 85.00% (51/60)
+- INT8 Accuracy : 33.33% (20/60)
+- Absolute Drop : 51.67%
+- Relative Drop : 60.78%  → INT8 GATE: FAIL (threshold: < 2%)
+
+Decision and notes:
+- Outcome: INT8 artifact produced by `onnx2tf` shows catastrophic accuracy loss relative to FP32. This matches prior failures observed with ShuffleNetV2, indicating an onnx2tf INT8 conversion problem that is likely systematic for these backbones and calibration settings.
+- Deployment fallback: prefer FP16 artifact for ResNet18 until onnx2tf INT8 conversion quality is resolved.
+- Notebook cells used: `notebooks/ResNet18Onnx.ipynb` cells that run `onnx2tf` (INT8 export) and the TFLite validation cell (stratified 60-image run).
+
+Runtime artifacts and discovery notes:
+- The notebook saved the INT8 artifact into `notebooks/models/` and produced detailed tensor correspondence reports under `notebooks/saved_models/resnet18_onnx2tf_int8_20260501_170624/` (see `*_tensor_correspondence_report.json`).
+
+Action: create machine-readable manifest `reports/resnet18_onnx2tf_int8_validation_20260501.json` and update promotion docs to record the INT8 failure and FP16 fallback.
 
 ```
 
